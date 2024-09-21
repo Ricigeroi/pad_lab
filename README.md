@@ -77,7 +77,7 @@ Each microservice will maintain its own database, ensuring separation of concern
         "message": "User registered successfully."
       }
       ```
-  
+
   - **POST /users/login**: Authenticates a user and returns a token.
     - Request:
       ```json
@@ -97,14 +97,18 @@ Each microservice will maintain its own database, ensuring separation of concern
     - Request:
       ```json
       {
-        "difficulty": "easy | medium | hard"
+        "difficulty": "easy | medium | hard",
+        "type": "single | multiplayer"
       }
       ```
     - Response:
       ```json
       {
         "gameId": "string",
-        "board": "[[0,0,0,5,0,0,0,0,0],...]"
+        "board": "[[0,0,0,5,0,0,0,0,0],...]",
+        "lobbyId": "string", 
+        "type": "single | multiplayer",
+        "ws_link": "ws://yourdomain.com/ws/lobby/{lobbyId}"
       }
       ```
 
@@ -129,9 +133,13 @@ Each microservice will maintain its own database, ensuring separation of concern
       ```json
       {
         "gameId": "string",
-        "board": "[[0,0,0,5,0,0,0,0,0],...]"
+        "board": "[[0,0,0,5,0,0,0,0,0],...]",
+        "lobbyId": "string", 
+        "type": "single | multiplayer",
+        "ws_link": "ws/lobby/{lobbyId}"
       }
       ```
+
 
 - **Lobby Service (FastAPI + WebSocket)**:
   - **POST /lobbies**: Creates a new lobby for users to join.
@@ -159,12 +167,11 @@ Each microservice will maintain its own database, ensuring separation of concern
       }
       ```
 
-  - **WebSocket /lobbies/ws**: WebSocket endpoint for real-time communication.
+  - **Dynamic WebSocket /ws/lobby/{lobby_id}**: WebSocket endpoint for real-time communication. Each lobby will have a dynamic WebSocket route based on the `lobby_id`.
     - Request:
       ```json
       {
         "action": "join_lobby",
-        "lobbyId": "string",
         "userId": "string"
       }
       ```
@@ -175,6 +182,11 @@ Each microservice will maintain its own database, ensuring separation of concern
         "message": "User joined the lobby."
       }
       ```
+
+    - Push messages:
+      - When a new user joins, or a move is made, the updated lobby state will be broadcasted to all connected clients in real-time.
+
+
 
 ## Deployment and Scaling
 Both microservices will be containerized using **Docker**. The platform will use **Docker Compose** to orchestrate multiple containers (Game Service, Lobby Service, Redis, PostgreSQL, and API Gateway).
