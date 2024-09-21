@@ -105,26 +105,9 @@ Each microservice will maintain its own database, ensuring separation of concern
       ```json
       {
         "gameId": "string",
-        "board": "[[0,0,0,5,0,0,0,0,0],...]",
         "lobbyId": "string", 
         "type": "single | multiplayer",
-        "ws_link": "ws://yourdomain.com/ws/lobby/{lobbyId}"
-      }
-      ```
-
-  - **POST /games/{gameId}/move**: Submits a move.
-    - Request:
-      ```json
-      {
-        "row": "int",
-        "col": "int",
-        "value": "int"
-      }
-      ```
-    - Response:
-      ```json
-      {
-        "message": "Move accepted."
+        "ws_link": "ws/lobby/{lobbyId}"
       }
       ```
 
@@ -133,7 +116,6 @@ Each microservice will maintain its own database, ensuring separation of concern
       ```json
       {
         "gameId": "string",
-        "board": "[[0,0,0,5,0,0,0,0,0],...]",
         "lobbyId": "string", 
         "type": "single | multiplayer",
         "ws_link": "ws/lobby/{lobbyId}"
@@ -142,49 +124,37 @@ Each microservice will maintain its own database, ensuring separation of concern
 
 
 - **Lobby Service (FastAPI + WebSocket)**:
-  - **POST /lobbies**: Creates a new lobby for users to join.
+  - **POST /lobbies**: Creates a new lobby for users to join and generates the Sudoku board.
     - Request:
       ```json
       {
-        "gameId": "string"
+        "gameId": "string",
+        "difficulty": "easy | medium | hard"  // Added difficulty to generate the board
       }
       ```
     - Response:
       ```json
       {
         "lobbyId": "string",
-        "message": "Lobby created."
+        "message": "Lobby created.",
+        "board": "[[0,0,0,5,0,0,0,0,0],...]"  // The generated Sudoku board
       }
       ```
 
-  - **GET /lobbies/{lobbyId}**: Fetches the details of a specific lobby.
+  - **GET /lobbies/{lobbyId}**: Fetches the details of a specific lobby along with the current board.
     - Response:
       ```json
       {
         "lobbyId": "string",
         "gameId": "string",
-        "players": ["user1", "user2"]
+        "players": ["user1", "user2"],
+        "board": "[[0,0,0,5,0,0,0,0,0],...]"  // The current Sudoku board
       }
       ```
 
-  - **Dynamic WebSocket /ws/lobby/{lobby_id}**: WebSocket endpoint for real-time communication. Each lobby will have a dynamic WebSocket route based on the `lobby_id`.
-    - Request:
-      ```json
-      {
-        "action": "join_lobby",
-        "userId": "string"
-      }
-      ```
-    - Response:
-      ```json
-      {
-        "status": "success",
-        "message": "User joined the lobby."
-      }
-      ```
-
+  - **Dynamic WebSocket /ws/lobby/{lobbyId}**: WebSocket endpoint for real-time communication. Each lobby will have a dynamic WebSocket route based on the `lobbyId`. The current game board will also be synchronized across all clients.
     - Push messages:
-      - When a new user joins, or a move is made, the updated lobby state will be broadcasted to all connected clients in real-time.
+      - When a new user joins or a move is made, the updated board and lobby state will be broadcasted to all connected clients in real-time.
 
 
 
