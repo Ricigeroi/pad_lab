@@ -36,10 +36,7 @@ The architecture would consist of the following elements:
 - **Lobby Service** (Python with FastAPI and WebSocket): Manages game sessions, enabling real-time communication via WebSocket.
 - **Database**: Each microservice has its own database to avoid cross-service data dependencies. Game Service uses PostgreSQL, and Lobby Service uses Redis for session management.
   
-```
-[Client] <---> [API Gateway (C#)] <---> [Game Service (FastAPI)] <---> [PostgreSQL]
-                                  |---> [Lobby Service (WebSocket)] <---> [Redis]
-```
+![alt-text](pad_architect.png)
 
 ## Technology Stack and Communication Patterns
 - **Game Service**:
