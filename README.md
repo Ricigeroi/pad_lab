@@ -93,23 +93,6 @@ Each microservice will maintain its own database, ensuring separation of concern
       }
       ```
 
-  - **POST /games/start**: Starts a new Sudoku game.
-    - Request:
-      ```json
-      {
-        "difficulty": "easy | medium | hard",
-        "type": "single | multiplayer"
-      }
-      ```
-    - Response:
-      ```json
-      {
-        "gameId": "string",
-        "lobbyId": "string", 
-        "type": "single | multiplayer",
-        "ws_link": "ws/lobby/{lobbyId}"
-      }
-      ```
 
   - **GET /games/{gameId}**: Retrieves the current game state.
     - Response:
@@ -149,6 +132,21 @@ Each microservice will maintain its own database, ensuring separation of concern
         "gameId": "string",
         "players": ["user1", "user2"],
         "board": "[[0,0,0,5,0,0,0,0,0],...]"  // The current Sudoku board
+      }
+      ```
+  - **POST /games/{gameId}/move**: Submits a move.
+    - Request:
+      ```json
+      {
+        "row": "int",
+        "col": "int",
+        "value": "int"
+      }
+      ```
+    - Response:
+      ```json
+      {
+        "message": "Move accepted."
       }
       ```
 
