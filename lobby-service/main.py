@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8000"],  # Добавьте ваш клиентский URL
+    allow_origins=["*"],  # Добавьте ваш клиентский URL
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -278,44 +278,39 @@ async def websocket_endpoint(websocket: WebSocket, lobbyId: str):
             logger.info(f"Получено сообщение от {lobbyId}: {data}")
             # Обработка сообщений
             try:
-                move = json.loads(data)
-                move_request = MoveRequest(**move)
+                data = json.loads(data)
+                if data.get("type") == "chat":
+                    # Это сообщение чата, отправьте его всем игрокам
+                    await manager.broadcast(lobbyId, json.dumps({"message": f"{data['player']}: {data['message']}"}))
+                elif data.get("type") == "move":
+                    # Это ход игры, обработайте его
+                    move_request = MoveRequest(**data)
+                    current_board = lobbies[lobbyId]["board"]
+                    valid, message = is_valid_move(current_board, move_request.row, move_request.col, move_request.value)
+                    if valid:
+                        current_board[move_request.row][move_request.col] = move_request.value
+                        logger.info(f"Ход принят: {move_request.player} поставил {move_request.value} на позицию ({move_request.row}, {move_request.col})")
+                        game_over, game_message = check_game_over(current_board)
+                        if game_over:
+                            await manager.broadcast(lobbyId, json.dumps({
+                                "message": game_message,
+                                "board": current_board
+                            }))
+                            logger.info(f"Игра в лобби {lobbyId} завершена: {game_message}")
+                        else:
+                            await manager.broadcast(lobbyId, json.dumps({
+                                "message": f"{move_request.player} made a move.",
+                                "board": current_board
+                            }))
+                    else:
+                        await websocket.send_text(json.dumps({"error": message}))
+                else:
+                    await websocket.send_text(json.dumps({"error": "Invalid message type."}))
             except json.JSONDecodeError:
                 await websocket.send_text(json.dumps({"error": "Invalid JSON format."}))
-                continue
             except Exception as e:
                 await websocket.send_text(json.dumps({"error": f"Invalid move data: {e}"}))
                 continue
-
-            # Получаем текущую доску
-            current_board = lobbies[lobbyId]["board"]
-
-            # Проверка валидности хода
-            valid, message = is_valid_move(current_board, move_request.row, move_request.col, move_request.value)
-            if valid:
-                # Применяем ход
-                current_board[move_request.row][move_request.col] = move_request.value
-                logger.info(f"Ход принят: {move_request.player} поставил {move_request.value} на позицию ({move_request.row}, {move_request.col})")
-
-                # Проверяем, завершена ли игра
-                game_over, game_message = check_game_over(current_board)
-                if game_over:
-                    await manager.broadcast(lobbyId, json.dumps({
-                        "message": game_message,
-                        "board": current_board
-                    }))
-                    logger.info(f"Игра в лобби {lobbyId} завершена: {game_message}")
-                    # Здесь можно добавить логику завершения игры, например, удаление лобби
-                else:
-                    # Отправляем обновленную доску всем игрокам
-                    await manager.broadcast(lobbyId, json.dumps({
-                        "message": f"{move_request.player} made a move.",
-                        "board": current_board
-                    }))
-            else:
-                # Отправляем сообщение об ошибке только отправителю
-                await websocket.send_text(json.dumps({"error": message}))
-                logger.warning(f"Неверный ход от {move_request.player}: {message}")
 
     except WebSocketDisconnect:
         logger.info(f"WebSocket отключён от лобби {lobbyId}")

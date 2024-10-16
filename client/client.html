@@ -378,11 +378,11 @@
         sendButton.addEventListener('click', () => {
             const message = messageInput.value.trim();
             if (message && websocket && websocket.readyState === WebSocket.OPEN) {
-                websocket.send(JSON.stringify({ player: playerRole, message }));
-                addMessage(`Вы: ${message}`);
+                websocket.send(JSON.stringify({ type: 'chat', player: playerRole, message }));
                 messageInput.value = '';
             }
         });
+
 
         // Покинание Лобби
         leaveButton.addEventListener('click', () => {
@@ -469,12 +469,14 @@
             }
 
             const move = {
+                type: 'move',
                 player: playerRole,
                 row: row,
                 col: col,
                 value: value
             };
             websocket.send(JSON.stringify(move));
+
         }
 
         // Получение Инициальной Доски
