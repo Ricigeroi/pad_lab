@@ -20,7 +20,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 # Конфигурация для JWT
-SECRET_KEY = "banana"  # Замените на ваш секретный ключ
+SECRET_KEY = "banana1"  # Замените на ваш секретный ключ
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 

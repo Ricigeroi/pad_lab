@@ -48,7 +48,7 @@
 
         let websocket = null;
         let currentLobbyId = null;
-        let playerRole = null;
+        let username = null; // Хранение реального имени пользователя
         let accessToken = localStorage.getItem('access_token'); // Получение токена из localStorage
 
         // Проверка наличия токена при загрузке страницы
@@ -247,13 +247,14 @@
         function handleWebSocketMessage(data) {
             if (data.message) {
                 addMessage(data.message);
-                if (data.message.includes('Connected as')) {
-                    playerRole = data.message.split(' ').pop();
+                // Извлечение username из сообщения "username подключился к лобби."
+                if (data.message.includes("подключился к лобби")) {
+                    username = data.message.split(" подключился")[0];
                 }
                 if (data.message.includes('Game starts')) {
                     showNotification('Игра начинается!', 'success');
                 }
-                if (data.message.includes('A player has disconnected')) {
+                if (data.message.includes('покинул лобби')) {
                     showNotification('Другой игрок покинул лобби.', 'error');
                     resetGameSection();
                 }
@@ -284,7 +285,7 @@
         sendButton.addEventListener('click', () => {
             const message = messageInput.value.trim();
             if (message && websocket && websocket.readyState === WebSocket.OPEN) {
-                websocket.send(JSON.stringify({ type: 'chat', player: playerRole, message }));
+                websocket.send(JSON.stringify({ type: 'chat', player: username, message }));
                 messageInput.value = '';
             }
         });
@@ -301,7 +302,7 @@
         function resetGameSection() {
             gameSection.style.display = 'none';
             currentLobbyId = null;
-            playerRole = null;
+            username = null;
             boardDiv.innerHTML = '';
             messagesDiv.innerHTML = '';
         }
@@ -407,7 +408,7 @@
 
             const move = {
                 type: 'move',
-                player: playerRole,
+                player: username,
                 row: row,
                 col: col,
                 value: value

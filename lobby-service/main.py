@@ -29,7 +29,7 @@ app.add_middleware(
 TIMEOUT_SECONDS = 5  # Установите желаемую длительность таймаута
 
 # Конфигурация для JWT
-SECRET_KEY = "banana"  # Должен совпадать с SECRET_KEY в game-service
+SECRET_KEY = "banana1"  # Должен совпадать с SECRET_KEY в game-service
 ALGORITHM = "HS256"
 
 # In-memory storage for lobbies
@@ -115,6 +115,7 @@ class ConnectionManager:
             return False
 
         self.active_connections[lobby_id].append(websocket)
+        # Определяем роль игрока (не используется в сообщениях)
         player_role = "player1" if len(self.active_connections[lobby_id]) == 1 else "player2"
         self.players[lobby_id][player_role] = websocket
 
@@ -124,12 +125,13 @@ class ConnectionManager:
             name=username  # Используем имя пользователя вместо "Player 1"
         )
         lobbies[lobby_id]["players"].append(player)
-        logger.info(f"{player.name} подключён к лобби {lobby_id} как {player_role}")
+        logger.info(f"{player.name} подключён к лобби {lobby_id}")
 
-        await websocket.send_text(json.dumps({"message": f"Connected as {player_role}"}))
+        # Отправляем сообщение о подключении с реальным именем пользователя
+        await websocket.send_text(json.dumps({"message": f"{player.name} подключился к лобби."}))
 
         if len(self.active_connections[lobby_id]) == 2:
-            await self.broadcast(lobby_id, json.dumps({"message": "Both players connected. Game starts!"}))
+            await self.broadcast(lobby_id, json.dumps({"message": "Оба игрока подключены. Игра начинается!"}))
             logger.info(f"Оба игрока подключены к лобби {lobby_id}. Игра начинается!")
 
         return True
@@ -140,16 +142,11 @@ class ConnectionManager:
                 self.active_connections[lobby_id].remove(websocket)
                 logger.info(f"WebSocket удалён из лобби {lobby_id}")
 
-                # Определение роли отключившегося игрока и удаление его из списка игроков
-                for role, ws in list(self.players[lobby_id].items()):
-                    if ws == websocket:
-                        del self.players[lobby_id][role]
-                        logger.info(f"{role} отключился от лобби {lobby_id}")
-
-                        # Удаление игрока из списка players лобби
-                        players_list = lobbies[lobby_id]["players"]
-                        players_list = [p for p in players_list if p.name != ws.application_state]
-                        lobbies[lobby_id]["players"] = players_list
+                # Определение отключившегося игрока и удаление его из списка игроков
+                for player in lobbies[lobby_id]["players"]:
+                    if player.name == get_username_from_websocket(lobby_id, websocket):
+                        lobbies[lobby_id]["players"].remove(player)
+                        logger.info(f"{player.name} отключился от лобби {lobby_id}")
                         break
 
             if not self.active_connections[lobby_id]:
@@ -166,6 +163,12 @@ class ConnectionManager:
                     await connection.send_text(message)
                 except Exception as e:
                     logger.error(f"Ошибка при отправке сообщения: {e}")
+
+def get_username_from_websocket(lobby_id: str, websocket: WebSocket) -> Optional[str]:
+    for player in lobbies[lobby_id]["players"]:
+        if player.name and websocket in manager.active_connections[lobby_id]:
+            return player.name
+    return None
 
 manager = ConnectionManager()
 
@@ -260,6 +263,7 @@ async def websocket_endpoint(websocket: WebSocket, lobbyId: str, token: str = Qu
     # Проверка токена
     username = verify_token(token)
     if username is None:
+        await websocket.send_text(json.dumps({"error": "Invalid token"}))
         await websocket.close(code=1008)  # Policy Violation
         return
     
@@ -295,7 +299,7 @@ async def websocket_endpoint(websocket: WebSocket, lobbyId: str, token: str = Qu
                             logger.info(f"Игра в лобби {lobbyId} завершена: {game_message}")
                         else:
                             await manager.broadcast(lobbyId, json.dumps({
-                                "message": f"{move_request.player} made a move.",
+                                "message": f"{move_request.player} сделал ход.",
                                 "board": current_board
                             }))
                     else:
@@ -311,7 +315,7 @@ async def websocket_endpoint(websocket: WebSocket, lobbyId: str, token: str = Qu
     except WebSocketDisconnect:
         logger.info(f"WebSocket отключён от лобби {lobbyId} пользователем {username}")
         manager.disconnect(lobbyId, websocket)
-        await manager.broadcast(lobbyId, json.dumps({"message": "A player has disconnected"}))
+        await manager.broadcast(lobbyId, json.dumps({"message": f"{username} покинул лобби."}))
     except Exception as e:
         logger.error(f"Ошибка в WebSocket-соединении с лобби {lobbyId}: {e}")
         await manager.broadcast(lobbyId, json.dumps({"error": "An error occurred"}))
