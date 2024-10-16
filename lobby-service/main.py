@@ -215,15 +215,25 @@ async def get_all_lobbies():
         )
     return all_lobbies
 
+sudoku_boards = [
+    [
+        [8, 0, 0, 0, 0, 0, 7, 6, 0],
+        [0, 4, 1, 0, 9, 6, 2, 0, 8],
+        [7, 0, 0, 0, 0, 0, 0, 0, 0],
+        [9, 0, 4, 1, 0, 2, 8, 3, 6],
+        [5, 1, 8, 0, 0, 4, 7, 0, 2],
+        [0, 6, 3, 0, 0, 0, 0, 1, 0],
+        [0, 0, 0, 0, 8, 7, 5, 0, 1],
+        [1, 0, 9, 0, 2, 3, 6, 8, 7],
+        [0, 8, 0, 6, 1, 0, 0, 2, 0]
+    ],
+]
+
 def generate_sudoku_board():
     """
-    Generates a 9x9 Sudoku board with some pre-filled values.
+    Returns a randomly selected pre-generated Sudoku board from the list.
     """
-    board = [[0 for _ in range(9)] for _ in range(9)]
-    # Simple example: fill some cells with random numbers for demonstration
-
-    # TODO: сделать генерацию валидной доски
-    return board
+    return random.choice(sudoku_boards)
 
 def is_valid_move(board, row, col, value):
     """
@@ -327,4 +337,3 @@ def check_game_over(board):
     # Дополнительно можно проверить, является ли доска валидной
     # Здесь предполагается, что все ходы были валидны, поэтому доска корректна
     return True, "Game Over: The Sudoku puzzle is completed!"
-

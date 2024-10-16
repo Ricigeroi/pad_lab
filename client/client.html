@@ -109,6 +109,44 @@
         .cell:nth-child(-n+54):nth-child(n+46) {
             border-bottom: 2px solid #000;
         }
+        /* Стили для уведомлений */
+        .notification {
+            background-color: #f44336; /* Красный цвет для ошибок */
+            color: white;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            position: relative;
+            animation: fadein 0.5s, fadeout 0.5s 4.5s;
+        }
+
+        .notification .close-btn {
+            position: absolute;
+            top: 5px;
+            right: 10px;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        @keyframes fadein {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes fadeout {
+            from { opacity: 1; }
+            to { opacity: 0; }
+        }
+
+        /* Блок уведомлений */
+        #notifications {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
     </style>
 </head>
 <body>
@@ -145,6 +183,9 @@
         </div>
     </div>
 
+    <!-- Блок для отображения уведомлений -->
+    <div id="notifications"></div>
+
     <script>
         const API_BASE_URL = 'http://localhost:5002'; // Замените на адрес вашего сервера
 
@@ -164,11 +205,45 @@
         const sendButton = document.getElementById('send-button');
         const leaveButton = document.getElementById('leave-button');
 
+        // Функция для отображения уведомлений
+        function showNotification(message, type = 'error') {
+            const notificationsDiv = document.getElementById('notifications');
+            
+            const notification = document.createElement('div');
+            notification.classList.add('notification');
+            if (type === 'error') {
+                notification.style.backgroundColor = '#f44336'; // Красный для ошибок
+            } else if (type === 'success') {
+                notification.style.backgroundColor = '#4CAF50'; // Зеленый для успеха
+            }
+
+            // Добавить сообщение
+            notification.textContent = message;
+
+            // Добавить кнопку закрытия
+            const closeBtn = document.createElement('span');
+            closeBtn.classList.add('close-btn');
+            closeBtn.innerHTML = '&times;';
+            closeBtn.onclick = () => {
+                notificationsDiv.removeChild(notification);
+            };
+            notification.appendChild(closeBtn);
+
+            notificationsDiv.appendChild(notification);
+
+            // Автоматически удалить уведомление через 5 секунд
+            setTimeout(() => {
+                if (notificationsDiv.contains(notification)) {
+                    notificationsDiv.removeChild(notification);
+                }
+            }, 5000);
+        }
+
         // Создание Лобби
         createLobbyButton.addEventListener('click', async () => {
             const gameId = gameIdInput.value.trim();
             if (!gameId) {
-                alert('Пожалуйста, введите Game ID.');
+                showNotification('Пожалуйста, введите Game ID.');
                 return;
             }
 
@@ -183,15 +258,16 @@
 
                 if (!response.ok) {
                     const error = await response.json();
-                    alert(`Ошибка: ${error.detail}`);
+                    showNotification(`Ошибка: ${error.detail}`);
                     return;
                 }
 
                 const data = await response.json();
-                alert(`Лобби создано! ID: ${data.lobbyId}`);
+                showNotification(`Лобби создано! ID: ${data.lobbyId}`, 'success');
                 fetchLobbies(); // Обновить список лобби
             } catch (error) {
                 console.error('Ошибка при создании лобби:', error);
+                showNotification('Произошла ошибка при создании лобби.');
             }
         });
 
@@ -202,12 +278,14 @@
                 if (!response.ok) {
                     const error = await response.json();
                     console.error(`Ошибка при получении лобби: ${error.detail}`);
+                    showNotification(`Ошибка при получении лобби: ${error.detail}`);
                     return;
                 }
                 const lobbies = await response.json();
                 renderLobbies(lobbies);
             } catch (error) {
                 console.error('Ошибка при получении лобби:', error);
+                showNotification('Произошла ошибка при получении лобби.');
             }
         }
 
@@ -246,13 +324,14 @@
                 websocket.onclose = () => {
                     console.log('WebSocket соединение закрыто');
                     if (currentLobbyId) {
-                        alert('Соединение с сервером закрыто.');
+                        showNotification('Соединение с сервером закрыто.');
                         resetGameSection();
                     }
                 };
 
                 websocket.onerror = (error) => {
                     console.error('WebSocket ошибка:', error);
+                    showNotification('Произошла ошибка WebSocket.');
                 };
 
                 currentLobbyId = lobbyId;
@@ -263,6 +342,7 @@
 
             } catch (error) {
                 console.error('Ошибка при подключении к WebSocket:', error);
+                showNotification('Произошла ошибка при подключении к лобби.');
             }
         }
 
@@ -274,14 +354,14 @@
                     playerRole = data.message.split(' ').pop();
                 }
                 if (data.message.includes('Game starts')) {
-                    alert('Игра начинается!');
+                    showNotification('Игра начинается!', 'success');
                 }
                 if (data.message.includes('A player has disconnected')) {
-                    alert('Другой игрок покинул лобби.');
+                    showNotification('Другой игрок покинул лобби.');
                     resetGameSection();
                 }
                 if (data.message.includes('Game Over')) {
-                    alert(data.message);
+                    showNotification(data.message, 'success');
                     resetGameSection();
                 }
             }
@@ -290,6 +370,7 @@
             }
             if (data.error) {
                 addMessage(`Ошибка: ${data.error}`);
+                showNotification(`Ошибка: ${data.error}`);
             }
         }
 
@@ -303,7 +384,7 @@
             }
         });
 
-        // Покидание Лобби
+        // Покинание Лобби
         leaveButton.addEventListener('click', () => {
             if (websocket) {
                 websocket.close();
@@ -377,13 +458,13 @@
 
             // Валидация ввода
             if (isNaN(value) || value < 1 || value > 9) {
-                alert('Пожалуйста, введите число от 1 до 9.');
+                showNotification('Пожалуйста, введите число от 1 до 9.');
                 cellDiv.textContent = '';
                 return;
             }
 
             if (!websocket || websocket.readyState !== WebSocket.OPEN) {
-                alert('WebSocket соединение не установлено.');
+                showNotification('WebSocket соединение не установлено.');
                 return;
             }
 
@@ -402,13 +483,14 @@
                 const response = await fetch(`${API_BASE_URL}/lobbies/${lobbyId}`);
                 if (!response.ok) {
                     const error = await response.json();
-                    alert(`Ошибка: ${error.detail}`);
+                    showNotification(`Ошибка: ${error.detail}`);
                     return;
                 }
                 const lobby = await response.json();
                 updateBoard(lobby.board);
             } catch (error) {
                 console.error('Ошибка при получении доски:', error);
+                showNotification('Произошла ошибка при получении доски.');
             }
         }
 
