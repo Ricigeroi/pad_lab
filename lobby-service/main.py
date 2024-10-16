@@ -3,6 +3,7 @@ import random
 import asyncio
 import uuid
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depends, Query, Header
+import asyncio
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import List, Dict, Optional
@@ -31,7 +32,15 @@ TIMEOUT_SECONDS = 5  # Установите желаемую длительно�
 # Конфигурация для JWT
 SECRET_KEY = "banana1"  # Должен совпадать с SECRET_KEY в game-service
 ALGORITHM = "HS256"
+# Semaphore for limiting concurrent tasks
+MAX_CONCURRENT_TASKS = 20
+semaphore = asyncio.Semaphore(MAX_CONCURRENT_TASKS)
 
+async def limit_concurrent_tasks():
+    async with semaphore:
+        yield
+
+# In-memory storage for lobbies
 # In-memory storage for lobbies
 lobbies = {}
 games = {}
@@ -174,8 +183,40 @@ manager = ConnectionManager()
 
 # Маршруты
 
+@app.post("/lobby_service/create", response_class=JSONResponse)
+async def create_lobby(
+    dependency: str = Depends(limit_concurrent_tasks), 
+    current_user: str = Depends(get_current_user)
+):
+    # Your endpoint logic here
+    pass
+
+@app.post("/lobby_service/join", response_class=JSONResponse)
+async def join_lobby(
+    dependency: str = Depends(limit_concurrent_tasks), 
+    current_user: str = Depends(get_current_user)
+):
+    # Your endpoint logic here
+    pass
+
+@app.post("/lobby_service/leave", response_class=JSONResponse)
+async def leave_lobby(
+    dependency: str = Depends(limit_concurrent_tasks), 
+    current_user: str = Depends(get_current_user)
+):
+    # Your endpoint logic here
+    pass
+
+@app.post("/lobby_service/start", response_class=JSONResponse)
+async def start_game(
+    dependency: str = Depends(limit_concurrent_tasks), 
+    current_user: str = Depends(get_current_user)
+):
+    # Your endpoint logic here
+    pass
+
 @app.get("/lobby_service/hello", response_class=JSONResponse)
-async def hello_lobby_service(current_user: str = Depends(get_current_user)):
+async def hello_lobby_service(dependency: str = Depends(limit_concurrent_tasks), current_user: str = Depends(get_current_user)):
     """
     Возвращает приветственное сообщение от lobby_service.
     """
@@ -188,7 +229,7 @@ async def _hello_lobby_service():
     return {"message": "Hello from lobby_service"}
 
 @app.get("/lobby_service/data", response_class=JSONResponse)
-async def get_service2_data(current_user: str = Depends(get_current_user)):
+async def get_service2_data(dependency: str = Depends(limit_concurrent_tasks), current_user: str = Depends(get_current_user)):
     """
     Возвращает некоторые данные от Service2.
     """
@@ -224,7 +265,7 @@ async def create_lobby(request: LobbyRequest, username: str = Depends(get_curren
     return LobbyResponse(lobbyId=lobby_id, message="Lobby created.", board=board)
 
 @app.get("/lobbies/{lobbyId}", response_model=LobbyDetailsResponse)
-async def get_lobby_details(lobbyId: str, username: str = Depends(get_current_user)):
+async def get_lobby_details(lobbyId: str, dependency: str = Depends(limit_concurrent_tasks), username: str = Depends(get_current_user)):
     """
     Fetches the details of a specific lobby along with the current board.
     """
@@ -241,7 +282,7 @@ async def get_lobby_details(lobbyId: str, username: str = Depends(get_current_us
     )
 
 @app.get("/lobbies", response_model=List[LobbyDetailsResponse])
-async def get_all_lobbies(username: str = Depends(get_current_user)):
+async def get_all_lobbies(dependency: str = Depends(limit_concurrent_tasks), username: str = Depends(get_current_user)):
     """
     Fetches the details of all open lobbies.
     """
@@ -259,7 +300,7 @@ async def get_all_lobbies(username: str = Depends(get_current_user)):
 
 # WebSocket Endpoint with Authentication
 @app.websocket("/ws/lobby/{lobbyId}")
-async def websocket_endpoint(websocket: WebSocket, lobbyId: str, token: str = Query(...)):
+async def websocket_endpoint(websocket: WebSocket, lobbyId: str, token: str = Query(...), dependency: str = Depends(limit_concurrent_tasks)):
     # Проверка токена
     username = verify_token(token)
     if username is None:
