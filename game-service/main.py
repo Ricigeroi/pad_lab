@@ -1,10 +1,158 @@
+# game_service.py
 import asyncio
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from pydantic import BaseModel
 import httpx
+from typing import Optional, Dict
+from passlib.context import CryptContext
+from jose import JWTError, jwt
+from datetime import datetime, timedelta
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Добавьте ваш клиентский URL
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+# Конфигурация для JWT
+SECRET_KEY = "banana"  # Замените на ваш секретный ключ
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
+# Настройка хэширования паролей
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="game_service/login")
+
+# Временное хранилище пользователей (используйте базу данных в продакшене)
+fake_users_db: Dict[str, Dict] = {}
+
+# Модели Pydantic
+class User(BaseModel):
+    username: str
+    email: Optional[str] = None
+    full_name: Optional[str] = None
+    disabled: Optional[bool] = None
+
+class UserInDB(User):
+    hashed_password: str
+
+class UserRegister(BaseModel):
+    username: str
+    email: Optional[str] = None
+    full_name: Optional[str] = None
+    password: str
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+class TokenData(BaseModel):
+    username: Optional[str] = None
+
+# Функции для работы с пользователями и паролями
+def verify_password(plain_password, hashed_password):
+    return pwd_context.verify(plain_password, hashed_password)
+
+def get_password_hash(password):
+    return pwd_context.hash(password)
+
+def get_user(username: str) -> Optional[UserInDB]:
+    user = fake_users_db.get(username)
+    if user:
+        return UserInDB(**user)
+    return None
+
+def authenticate_user(username: str, password: str) -> Optional[UserInDB]:
+    user = get_user(username)
+    if not user:
+        return None
+    if not verify_password(password, user.hashed_password):
+        return None
+    return user
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+# Зависимость для получения текущего пользователя
+async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Не удалось аутентифицировать пользователя",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+        token_data = TokenData(username=username)
+    except JWTError:
+        raise credentials_exception
+    user = get_user(username=token_data.username)
+    if user is None:
+        raise credentials_exception
+    return User(
+        username=user.username,
+        email=user.email,
+        full_name=user.full_name,
+        disabled=user.disabled
+    )
+
+# Маршрут регистрации
+@app.post("/game_service/register", response_model=User)
+async def register(user: UserRegister):
+    if user.username in fake_users_db:
+        raise HTTPException(status_code=400, detail="Имя пользователя уже существует")
+    hashed_password = get_password_hash(user.password)
+    fake_users_db[user.username] = {
+        "username": user.username,
+        "email": user.email,
+        "full_name": user.full_name,
+        "hashed_password": hashed_password,
+        "disabled": False,
+    }
+    return User(
+        username=user.username,
+        email=user.email,
+        full_name=user.full_name,
+        disabled=False
+    )
+
+# Маршрут логина
+@app.post("/game_service/login", response_model=Token)
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    user = authenticate_user(form_data.username, form_data.password)
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail="Неверные имя пользователя или пароль",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.username},
+        expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
+
+# Пример защищенного маршрута
+@app.get("/game_service/users/me", response_model=User)
+async def read_users_me(current_user: User = Depends(get_current_user)):
+    return current_user
+
+# Существующие маршруты
 SERVICE2_URL = "http://localhost:5002/lobby_service/data"
 TIMEOUT = 10  # Set your desired timeout in seconds
 

@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Вход в систему</title>
+    <link rel="stylesheet" href="login.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Вход в систему</h1>
+
+        <!-- Секция Авторизации -->
+        <div id="auth-section">
+            <h2>Вход</h2>
+            <form id="login-form">
+                <input type="text" id="login-username" placeholder="Имя пользователя" required>
+                <input type="password" id="login-password" placeholder="Пароль" required>
+                <button type="submit">Войти</button>
+            </form>
+            <button id="show-register-button">Зарегистрироваться</button>
+            <form id="register-form">
+                <h2>Регистрация</h2>
+                <input type="text" id="reg-username" placeholder="Имя пользователя" required>
+                <input type="email" id="reg-email" placeholder="Email">
+                <input type="text" id="reg-fullname" placeholder="Полное имя">
+                <input type="password" id="reg-password" placeholder="Пароль" required>
+                <button type="submit">Зарегистрироваться</button>
+            </form>
+            <div id="auth-message" class="message" style="display: none;"></div>
+        </div>
+    </div>
+
+    <!-- Блок для отображения уведомлений -->
+    <div id="notifications"></div>
+
+    <script>
+        const GAME_SERVICE_URL = 'http://localhost:5001/game_service'; // URL вашего game-service
+        const authMessage = document.getElementById('auth-message');
+        const registerForm = document.getElementById('register-form');
+        const showRegisterButton = document.getElementById('show-register-button');
+
+        // Функция для отображения уведомлений
+        function showNotification(message, type = 'error') {
+            const notificationsDiv = document.getElementById('notifications');
+            
+            const notification = document.createElement('div');
+            notification.classList.add('notification');
+            if (type === 'error') {
+                notification.style.backgroundColor = '#f44336'; // Красный для ошибок
+            } else if (type === 'success') {
+                notification.style.backgroundColor = '#4CAF50'; // Зеленый для успеха
+            }
+
+            // Добавить сообщение
+            notification.textContent = message;
+
+            // Добавить кнопку закрытия
+            const closeBtn = document.createElement('span');
+            closeBtn.classList.add('close-btn');
+            closeBtn.innerHTML = '&times;';
+            closeBtn.onclick = () => {
+                notificationsDiv.removeChild(notification);
+            };
+            notification.appendChild(closeBtn);
+
+            notificationsDiv.appendChild(notification);
+
+            // Автоматически удалить уведомление через 5 секунд
+            setTimeout(() => {
+                if (notificationsDiv.contains(notification)) {
+                    notificationsDiv.removeChild(notification);
+                }
+            }, 5000);
+        }
+
+        // Обработка показа формы регистрации
+        showRegisterButton.addEventListener('click', () => {
+            registerForm.style.display = registerForm.style.display === 'none' ? 'block' : 'none';
+        });
+
+        // Регистрация Пользователя
+        registerForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            authMessage.style.display = 'none';
+
+            const username = document.getElementById('reg-username').value.trim();
+            const email = document.getElementById('reg-email').value.trim();
+            const full_name = document.getElementById('reg-fullname').value.trim();
+            const password = document.getElementById('reg-password').value.trim();
+
+            if (!username || !password) {
+                showNotification('Имя пользователя и пароль обязательны.', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${GAME_SERVICE_URL}/register`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username, email, full_name, password })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showNotification('Регистрация успешна! Теперь вы можете войти.', 'success');
+                    registerForm.reset();
+                    registerForm.style.display = 'none';
+                } else {
+                    showNotification(data.detail || 'Ошибка при регистрации.', 'error');
+                }
+            } catch (error) {
+                console.error('Ошибка при регистрации:', error);
+                showNotification('Произошла ошибка при регистрации.', 'error');
+            }
+        });
+
+        // Вход Пользователя
+        loginForm = document.getElementById('login-form');
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            authMessage.style.display = 'none';
+
+            const username = document.getElementById('login-username').value.trim();
+            const password = document.getElementById('login-password').value.trim();
+
+            if (!username || !password) {
+                showNotification('Имя пользователя и пароль обязательны.', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${GAME_SERVICE_URL}/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: new URLSearchParams({ username, password })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    // Сохранение токена в localStorage
+                    localStorage.setItem('access_token', data.access_token);
+                    showNotification('Вход успешен!', 'success');
+                    loginForm.reset();
+                    // Перенаправление на lobby.html
+                    window.location.href = 'lobby.html';
+                } else {
+                    showNotification(data.detail || 'Ошибка при входе.', 'error');
+                }
+            } catch (error) {
+                console.error('Ошибка при входе:', error);
+                showNotification('Произошла ошибка при входе.', 'error');
+            }
+        });
+    </script>
+</body>
+</html>

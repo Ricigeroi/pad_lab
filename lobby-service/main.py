@@ -1,14 +1,15 @@
+# lobby_service.py
 import random
 import asyncio
 import uuid
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depends, Query, Header
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import List, Dict
+from typing import List, Dict, Optional
 import json
 import logging
 from fastapi.middleware.cors import CORSMiddleware
-
+from jose import JWTError, jwt
 
 # Настройка логирования
 logging.basicConfig(
@@ -20,17 +21,22 @@ logger = logging.getLogger(__name__)
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Добавьте ваш клиентский URL
+    allow_origins=["*"],  # Замените на ваш клиентский URL в продакшене
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 TIMEOUT_SECONDS = 5  # Установите желаемую длительность таймаута
 
+# Конфигурация для JWT
+SECRET_KEY = "banana"  # Должен совпадать с SECRET_KEY в game-service
+ALGORITHM = "HS256"
+
 # In-memory storage for lobbies
 lobbies = {}
 games = {}
 
+# Модели Pydantic
 class LobbyRequest(BaseModel):
     gameId: str
 
@@ -50,29 +56,62 @@ class LobbyDetailsResponse(BaseModel):
     board: list
 
 class MoveRequest(BaseModel):
-    player: str  # "player1" или "player2"
-    row: int
-    col: int
-    value: int
+    type: str  # "move" или "chat"
+    player: str  # Имя пользователя
+    row: Optional[int] = None
+    col: Optional[int] = None
+    value: Optional[int] = None
+    message: Optional[str] = None
 
+class TokenData(BaseModel):
+    username: Optional[str] = None
+
+# Функции для проверки токена
+def verify_token(token: str) -> Optional[str]:
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            return None
+        return username
+    except JWTError:
+        return None
+
+# Зависимость для получения текущего пользователя
+async def get_current_user(authorization: str = Header(...)) -> str:
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid authorization header")
+    token = authorization.split(" ")[1]
+    username = verify_token(token)
+    if username is None:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    return username
+
+# Класс для управления соединениями WebSocket
 class ConnectionManager:
     def __init__(self):
         self.active_connections: Dict[str, List[WebSocket]] = {}
-        self.players: Dict[str, Dict[str, WebSocket]] = {}  # Хранит роли игроков
+        self.players: Dict[str, Dict[str, WebSocket]] = {}  # Хранит роли игроков и их имена
 
-    async def connect(self, lobby_id: str, websocket: WebSocket):
+    async def connect(self, lobby_id: str, websocket: WebSocket, username: str):
         await websocket.accept()
-        logger.info(f"Попытка подключения к лобби {lobby_id}")
+        logger.info(f"Попытка подключения пользователя {username} к лобби {lobby_id}")
 
         if lobby_id not in self.active_connections:
             self.active_connections[lobby_id] = []
             self.players[lobby_id] = {}
+            # Инициализируем лобби с пустым списком игроков и доской
+            lobbies[lobby_id] = {
+                "gameId": "sudoku",  # Можно динамически получать из запроса
+                "players": [],
+                "board": generate_sudoku_board()
+            }
             logger.info(f"Создано новое лобби {lobby_id}")
 
         if len(self.active_connections[lobby_id]) >= 2:
             await websocket.send_text(json.dumps({"error": "Lobby is full"}))
             await websocket.close()
-            logger.warning(f"Лобби {lobby_id} заполнено. Подключение отклонено.")
+            logger.warning(f"Лобби {lobby_id} заполнено. Подключение отклонено пользователем {username}.")
             return False
 
         self.active_connections[lobby_id].append(websocket)
@@ -82,10 +121,10 @@ class ConnectionManager:
         # Создаем объект Player и добавляем его в список игроков лобби
         player = Player(
             player_id=str(uuid.uuid4()),
-            name=f"Player {player_role[-1]}"  # "Player 1" или "Player 2"
+            name=username  # Используем имя пользователя вместо "Player 1"
         )
         lobbies[lobby_id]["players"].append(player)
-        logger.info(f"{player.name} подключён к лобби {lobby_id}")
+        logger.info(f"{player.name} подключён к лобби {lobby_id} как {player_role}")
 
         await websocket.send_text(json.dumps({"message": f"Connected as {player_role}"}))
 
@@ -97,22 +136,21 @@ class ConnectionManager:
 
     def disconnect(self, lobby_id: str, websocket: WebSocket):
         if lobby_id in self.active_connections:
-            self.active_connections[lobby_id].remove(websocket)
-            logger.info(f"WebSocket удалён из лобби {lobby_id}")
+            if websocket in self.active_connections[lobby_id]:
+                self.active_connections[lobby_id].remove(websocket)
+                logger.info(f"WebSocket удалён из лобби {lobby_id}")
 
-            # Определение роли отключившегося игрока и удаление его из списка игроков
-            for role, ws in list(self.players[lobby_id].items()):
-                if ws == websocket:
-                    del self.players[lobby_id][role]
-                    logger.info(f"{role} отключился от лобби {lobby_id}")
+                # Определение роли отключившегося игрока и удаление его из списка игроков
+                for role, ws in list(self.players[lobby_id].items()):
+                    if ws == websocket:
+                        del self.players[lobby_id][role]
+                        logger.info(f"{role} отключился от лобби {lobby_id}")
 
-                    # Удаление игрока из списка players лобби
-                    players_list = lobbies[lobby_id]["players"]
-                    # Предполагается, что player_id соответствует роли (player1, player2)
-                    # В реальной ситуации может потребоваться более точная связь
-                    players_list = [p for p in players_list if p.name != f"Player {role[-1]}"]
-                    lobbies[lobby_id]["players"] = players_list
-                    break
+                        # Удаление игрока из списка players лобби
+                        players_list = lobbies[lobby_id]["players"]
+                        players_list = [p for p in players_list if p.name != ws.application_state]
+                        lobbies[lobby_id]["players"] = players_list
+                        break
 
             if not self.active_connections[lobby_id]:
                 del self.active_connections[lobby_id]
@@ -131,8 +169,10 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
+# Маршруты
+
 @app.get("/lobby_service/hello", response_class=JSONResponse)
-async def hello_lobby_service():
+async def hello_lobby_service(current_user: str = Depends(get_current_user)):
     """
     Возвращает приветственное сообщение от lobby_service.
     """
@@ -145,7 +185,7 @@ async def _hello_lobby_service():
     return {"message": "Hello from lobby_service"}
 
 @app.get("/lobby_service/data", response_class=JSONResponse)
-async def get_service2_data():
+async def get_service2_data(current_user: str = Depends(get_current_user)):
     """
     Возвращает некоторые данные от Service2.
     """
@@ -162,7 +202,7 @@ async def _get_service2_data():
     return data
 
 @app.post("/lobbies", response_model=LobbyResponse)
-async def create_lobby(request: LobbyRequest):
+async def create_lobby(request: LobbyRequest, username: str = Depends(get_current_user)):
     """
     Creates a new lobby and generates a Sudoku board.
     """
@@ -177,19 +217,18 @@ async def create_lobby(request: LobbyRequest):
         "lobby_id": lobby_id,
         "board": board
     }
-    logger.info(f"Создано новое лобби {lobby_id} для игры")
+    logger.info(f"Создано новое лобби {lobby_id} для игры пользователем {username}")
     return LobbyResponse(lobbyId=lobby_id, message="Lobby created.", board=board)
 
-
 @app.get("/lobbies/{lobbyId}", response_model=LobbyDetailsResponse)
-async def get_lobby_details(lobbyId: str):
+async def get_lobby_details(lobbyId: str, username: str = Depends(get_current_user)):
     """
     Fetches the details of a specific lobby along with the current board.
     """
-    logger.info(f"Запрос деталей лобби {lobbyId}")
+    logger.info(f"Пользователь {username} запрашивает детали лобби {lobbyId}")
     lobby = lobbies.get(lobbyId)
     if not lobby:
-        logger.warning(f"Лобби {lobbyId} не найдено")
+        logger.warning(f"Лобби {lobbyId} не найдено пользователем {username}")
         raise HTTPException(status_code=404, detail="Lobby not found")
     return LobbyDetailsResponse(
         lobbyId=lobbyId,
@@ -199,7 +238,7 @@ async def get_lobby_details(lobbyId: str):
     )
 
 @app.get("/lobbies", response_model=List[LobbyDetailsResponse])
-async def get_all_lobbies():
+async def get_all_lobbies(username: str = Depends(get_current_user)):
     """
     Fetches the details of all open lobbies.
     """
@@ -215,67 +254,24 @@ async def get_all_lobbies():
         )
     return all_lobbies
 
-sudoku_boards = [
-    [
-        [8, 0, 0, 0, 0, 0, 7, 6, 0],
-        [0, 4, 1, 0, 9, 6, 2, 0, 8],
-        [7, 0, 0, 0, 0, 0, 0, 0, 0],
-        [9, 0, 4, 1, 0, 2, 8, 3, 6],
-        [5, 1, 8, 0, 0, 4, 7, 0, 2],
-        [0, 6, 3, 0, 0, 0, 0, 1, 0],
-        [0, 0, 0, 0, 8, 7, 5, 0, 1],
-        [1, 0, 9, 0, 2, 3, 6, 8, 7],
-        [0, 8, 0, 6, 1, 0, 0, 2, 0]
-    ],
-]
-
-def generate_sudoku_board():
-    """
-    Returns a randomly selected pre-generated Sudoku board from the list.
-    """
-    return random.choice(sudoku_boards)
-
-def is_valid_move(board, row, col, value):
-    """
-    Проверяет валидность хода в Sudoku.
-    """
-    # Проверка диапазона значений
-    if not (0 <= row < 9 and 0 <= col < 9 and 1 <= value <= 9):
-        return False, "Invalid row, column, or value."
-
-    # Проверка, что клетка пустая
-    if board[row][col] != 0:
-        return False, "Cell is already filled."
-
-    # Проверка строки
-    if value in board[row]:
-        return False, "Value already exists in the row."
-
-    # Проверка столбца
-    for r in range(9):
-        if board[r][col] == value:
-            return False, "Value already exists in the column."
-
-    # Проверка 3x3 подблока
-    start_row, start_col = 3 * (row // 3), 3 * (col // 3)
-    for r in range(start_row, start_row + 3):
-        for c in range(start_col, start_col + 3):
-            if board[r][c] == value:
-                return False, "Value already exists in the 3x3 block."
-
-    return True, "Valid move."
-
+# WebSocket Endpoint with Authentication
 @app.websocket("/ws/lobby/{lobbyId}")
-async def websocket_endpoint(websocket: WebSocket, lobbyId: str):
-    logger.info(f"Получен запрос на подключение к WebSocket лобби {lobbyId}")
-    success = await manager.connect(lobbyId, websocket)
+async def websocket_endpoint(websocket: WebSocket, lobbyId: str, token: str = Query(...)):
+    # Проверка токена
+    username = verify_token(token)
+    if username is None:
+        await websocket.close(code=1008)  # Policy Violation
+        return
+    
+    logger.info(f"Пользователь {username} подключается к WebSocket лобби {lobbyId}")
+    success = await manager.connect(lobbyId, websocket, username)
     if not success:
         logger.info(f"Подключение к лобби {lobbyId} не удалось (лобби заполнено)")
         return
     try:
         while True:
             data = await websocket.receive_text()
-            logger.info(f"Получено сообщение от {lobbyId}: {data}")
+            logger.info(f"Получено сообщение от {username} в лобби {lobbyId}: {data}")
             # Обработка сообщений
             try:
                 data = json.loads(data)
@@ -313,13 +309,12 @@ async def websocket_endpoint(websocket: WebSocket, lobbyId: str):
                 continue
 
     except WebSocketDisconnect:
-        logger.info(f"WebSocket отключён от лобби {lobbyId}")
+        logger.info(f"WebSocket отключён от лобби {lobbyId} пользователем {username}")
         manager.disconnect(lobbyId, websocket)
         await manager.broadcast(lobbyId, json.dumps({"message": "A player has disconnected"}))
     except Exception as e:
         logger.error(f"Ошибка в WebSocket-соединении с лобби {lobbyId}: {e}")
         await manager.broadcast(lobbyId, json.dumps({"error": "An error occurred"}))
-
 
 def check_game_over(board):
     """
@@ -332,3 +327,55 @@ def check_game_over(board):
     # Дополнительно можно проверить, является ли доска валидной
     # Здесь предполагается, что все ходы были валидны, поэтому доска корректна
     return True, "Game Over: The Sudoku puzzle is completed!"
+
+# Pre-generated Sudoku boards
+sudoku_boards = [
+    [
+        [8, 0, 0, 0, 0, 0, 7, 6, 0],
+        [0, 4, 1, 0, 9, 6, 2, 0, 8],
+        [7, 0, 0, 0, 0, 0, 0, 0, 0],
+        [9, 0, 4, 1, 0, 2, 8, 3, 6],
+        [5, 1, 8, 0, 0, 4, 7, 0, 2],
+        [0, 6, 3, 0, 0, 0, 0, 1, 0],
+        [0, 0, 0, 0, 8, 7, 5, 0, 1],
+        [1, 0, 9, 0, 2, 3, 6, 8, 7],
+        [0, 8, 0, 6, 1, 0, 0, 2, 0]
+    ],
+    # Добавьте дополнительные доски Sudoku здесь, если необходимо
+]
+
+def generate_sudoku_board():
+    """
+    Возвращает случайно выбранную предгенерированную доску Sudoku из списка.
+    """
+    return random.choice(sudoku_boards)
+
+def is_valid_move(board, row, col, value):
+    """
+    Проверяет валидность хода в Sudoku.
+    """
+    # Проверка диапазона значений
+    if not (0 <= row < 9 and 0 <= col < 9 and 1 <= value <= 9):
+        return False, "Invalid row, column, or value."
+
+    # Проверка, что клетка пустая
+    if board[row][col] != 0:
+        return False, "Cell is already filled."
+
+    # Проверка строки
+    if value in board[row]:
+        return False, "Value already exists in the row."
+
+    # Проверка столбца
+    for r in range(9):
+        if board[r][col] == value:
+            return False, "Value already exists in the column."
+
+    # Проверка 3x3 подблока
+    start_row, start_col = 3 * (row // 3), 3 * (col // 3)
+    for r in range(start_row, start_row + 3):
+        for c in range(start_col, start_col + 3):
+            if board[r][c] == value:
+                return False, "Value already exists in the 3x3 block."
+
+    return True, "Valid move."
