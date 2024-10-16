@@ -58,5 +58,6 @@ namespace ApiGateway.Controllers
 
             return StatusCode((int)response.StatusCode, "Error from Service2");
         }
+        
     }
 }
