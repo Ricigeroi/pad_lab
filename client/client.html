@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Sudoku Lobby Game</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+        }
+        #container {
+            width: 90%;
+            max-width: 1200px;
+            margin: 20px auto;
+            background-color: #fff;
+            padding: 20px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        h1, h2 {
+            text-align: center;
+        }
+        #create-lobby, #lobbies-list, #game-section {
+            margin-bottom: 30px;
+        }
+        #create-lobby input {
+            width: 80%;
+            padding: 10px;
+            margin-right: 10px;
+        }
+        #create-lobby button {
+            padding: 10px 20px;
+        }
+        #lobbies-list ul {
+            list-style-type: none;
+            padding: 0;
+        }
+        #lobbies-list li {
+            padding: 10px;
+            border-bottom: 1px solid #ccc;
+        }
+        #lobbies-list button {
+            float: right;
+            padding: 5px 10px;
+        }
+        #board {
+            display: grid;
+            grid-template-columns: repeat(9, 40px);
+            grid-template-rows: repeat(9, 40px);
+            gap: 2px;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+        .cell {
+            width: 40px;
+            height: 40px;
+            border: 1px solid #999;
+            text-align: center;
+            vertical-align: middle;
+            line-height: 40px;
+            cursor: pointer;
+            font-size: 18px;
+            background-color: #eaeaea;
+            position: relative;
+        }
+        .cell.editable {
+            background-color: #fff;
+            border: 2px solid #4CAF50;
+        }
+        .cell.selected {
+            border: 2px solid #2196F3;
+        }
+        .cell input {
+            width: 100%;
+            height: 100%;
+            border: none;
+            text-align: center;
+            font-size: 18px;
+            background-color: transparent;
+            outline: none;
+        }
+        #messages {
+            border: 1px solid #ccc;
+            height: 150px;
+            overflow-y: scroll;
+            padding: 10px;
+            background-color: #fafafa;
+        }
+        #messages div {
+            margin-bottom: 10px;
+        }
+        #send-message {
+            display: flex;
+            margin-top: 10px;
+        }
+        #send-message input {
+            flex: 1;
+            padding: 10px;
+            font-size: 16px;
+        }
+        #send-message button {
+            padding: 10px 20px;
+            font-size: 16px;
+        }
+        /* 3x3 блоки */
+        .cell:nth-child(3n) {
+            border-right: 2px solid #000;
+        }
+        .cell:nth-child(-n+27):nth-child(n+19),
+        .cell:nth-child(-n+54):nth-child(n+46) {
+            border-bottom: 2px solid #000;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <h1>Sudoku Lobby Game</h1>
+
+        <!-- Создание Лобби -->
+        <div id="create-lobby">
+            <h2>Создать Лобби</h2>
+            <input type="text" id="game-id" placeholder="Введите Game ID" value="sudoku">
+            <button id="create-lobby-button">Создать Лобби</button>
+        </div>
+
+        <!-- Список Лобби -->
+        <div id="lobbies-list">
+            <h2>Доступные Лобби</h2>
+            <ul id="lobbies-ul">
+                <!-- Лобби будут добавляться здесь -->
+            </ul>
+        </div>
+
+        <!-- Игровой Раздел -->
+        <div id="game-section" style="display: none;">
+            <h2>Лобби: <span id="current-lobby-id"></span></h2>
+            <div id="board">
+                <!-- Ячейки доски будут добавляться здесь -->
+            </div>
+            <div id="messages"></div>
+            <div id="send-message">
+                <input type="text" id="message-input" placeholder="Введите сообщение">
+                <button id="send-button">Отправить</button>
+            </div>
+            <button id="leave-button">Покинуть Лобби</button>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://localhost:5002'; // Замените на адрес вашего сервера
+
+        let websocket = null;
+        let currentLobbyId = null;
+        let playerRole = null;
+
+        // Элементы DOM
+        const createLobbyButton = document.getElementById('create-lobby-button');
+        const gameIdInput = document.getElementById('game-id');
+        const lobbiesUl = document.getElementById('lobbies-ul');
+        const gameSection = document.getElementById('game-section');
+        const currentLobbyIdSpan = document.getElementById('current-lobby-id');
+        const boardDiv = document.getElementById('board');
+        const messagesDiv = document.getElementById('messages');
+        const messageInput = document.getElementById('message-input');
+        const sendButton = document.getElementById('send-button');
+        const leaveButton = document.getElementById('leave-button');
+
+        // Создание Лобби
+        createLobbyButton.addEventListener('click', async () => {
+            const gameId = gameIdInput.value.trim();
+            if (!gameId) {
+                alert('Пожалуйста, введите Game ID.');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/lobbies`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ gameId })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    alert(`Ошибка: ${error.detail}`);
+                    return;
+                }
+
+                const data = await response.json();
+                alert(`Лобби создано! ID: ${data.lobbyId}`);
+                fetchLobbies(); // Обновить список лобби
+            } catch (error) {
+                console.error('Ошибка при создании лобби:', error);
+            }
+        });
+
+        // Получение Списка Лобби
+        async function fetchLobbies() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/lobbies`);
+                if (!response.ok) {
+                    const error = await response.json();
+                    console.error(`Ошибка при получении лобби: ${error.detail}`);
+                    return;
+                }
+                const lobbies = await response.json();
+                renderLobbies(lobbies);
+            } catch (error) {
+                console.error('Ошибка при получении лобби:', error);
+            }
+        }
+
+        // Рендеринг Списка Лобби
+        function renderLobbies(lobbies) {
+            lobbiesUl.innerHTML = '';
+            if (lobbies.length === 0) {
+                lobbiesUl.innerHTML = '<li>Нет доступных лобби.</li>';
+                return;
+            }
+            lobbies.forEach(lobby => {
+                const li = document.createElement('li');
+                li.textContent = `Лобби ID: ${lobby.lobbyId} | Игроков: ${lobby.players.length}/2`;
+                const joinButton = document.createElement('button');
+                joinButton.textContent = 'Присоединиться';
+                joinButton.addEventListener('click', () => joinLobby(lobby.lobbyId));
+                li.appendChild(joinButton);
+                lobbiesUl.appendChild(li);
+            });
+        }
+
+        // Присоединение к Лобби
+        async function joinLobby(lobbyId) {
+            try {
+                websocket = new WebSocket(`ws://localhost:5002/ws/lobby/${lobbyId}`); // Замените на адрес вашего сервера
+
+                websocket.onopen = () => {
+                    console.log('WebSocket соединение открыто');
+                };
+
+                websocket.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    handleWebSocketMessage(data);
+                };
+
+                websocket.onclose = () => {
+                    console.log('WebSocket соединение закрыто');
+                    if (currentLobbyId) {
+                        alert('Соединение с сервером закрыто.');
+                        resetGameSection();
+                    }
+                };
+
+                websocket.onerror = (error) => {
+                    console.error('WebSocket ошибка:', error);
+                };
+
+                currentLobbyId = lobbyId;
+                currentLobbyIdSpan.textContent = lobbyId;
+                gameSection.style.display = 'block';
+                fetchBoard(lobbyId);
+                fetchMessages(lobbyId);
+
+            } catch (error) {
+                console.error('Ошибка при подключении к WebSocket:', error);
+            }
+        }
+
+        // Обработка Сообщений от WebSocket
+        function handleWebSocketMessage(data) {
+            if (data.message) {
+                addMessage(data.message);
+                if (data.message.includes('Connected as')) {
+                    playerRole = data.message.split(' ').pop();
+                }
+                if (data.message.includes('Game starts')) {
+                    alert('Игра начинается!');
+                }
+                if (data.message.includes('A player has disconnected')) {
+                    alert('Другой игрок покинул лобби.');
+                    resetGameSection();
+                }
+                if (data.message.includes('Game Over')) {
+                    alert(data.message);
+                    resetGameSection();
+                }
+            }
+            if (data.board) {
+                updateBoard(data.board);
+            }
+            if (data.error) {
+                addMessage(`Ошибка: ${data.error}`);
+            }
+        }
+
+        // Отправка Сообщений через WebSocket (чат)
+        sendButton.addEventListener('click', () => {
+            const message = messageInput.value.trim();
+            if (message && websocket && websocket.readyState === WebSocket.OPEN) {
+                websocket.send(JSON.stringify({ player: playerRole, message }));
+                addMessage(`Вы: ${message}`);
+                messageInput.value = '';
+            }
+        });
+
+        // Покидание Лобби
+        leaveButton.addEventListener('click', () => {
+            if (websocket) {
+                websocket.close();
+            }
+            resetGameSection();
+        });
+
+        // Сброс Игрового Раздела
+        function resetGameSection() {
+            gameSection.style.display = 'none';
+            currentLobbyId = null;
+            playerRole = null;
+            boardDiv.innerHTML = '';
+            messagesDiv.innerHTML = '';
+        }
+
+        // Добавление Сообщений в Чат
+        function addMessage(message) {
+            const div = document.createElement('div');
+            div.textContent = message;
+            messagesDiv.appendChild(div);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        // Получение и Рендеринг Доски
+        function updateBoard(board) {
+            boardDiv.innerHTML = '';
+            board.forEach((row, rowIndex) => {
+                row.forEach((cell, colIndex) => {
+                    const cellDiv = document.createElement('div');
+                    cellDiv.classList.add('cell');
+                    cellDiv.dataset.row = rowIndex;
+                    cellDiv.dataset.col = colIndex;
+
+                    if (cell !== 0) {
+                        cellDiv.textContent = cell;
+                        cellDiv.style.backgroundColor = '#d3d3d3';
+                    } else {
+                        cellDiv.classList.add('editable');
+                        cellDiv.setAttribute('contenteditable', 'true');
+                        cellDiv.addEventListener('focus', () => selectCell(cellDiv));
+                        cellDiv.addEventListener('blur', () => sendMove(cellDiv));
+                        cellDiv.addEventListener('keypress', (e) => {
+                            if (e.key === 'Enter') {
+                                e.preventDefault();
+                                cellDiv.blur();
+                            }
+                        });
+                    }
+
+                    boardDiv.appendChild(cellDiv);
+                });
+            });
+        }
+
+        // Выбор Ячейки
+        function selectCell(cellDiv) {
+            // Удалить выделение со всех ячеек
+            document.querySelectorAll('.cell').forEach(cell => {
+                cell.classList.remove('selected');
+            });
+            // Выделить текущую ячейку
+            cellDiv.classList.add('selected');
+        }
+
+        // Отправка Хода на Сервер
+        function sendMove(cellDiv) {
+            const row = parseInt(cellDiv.dataset.row);
+            const col = parseInt(cellDiv.dataset.col);
+            const value = parseInt(cellDiv.textContent.trim());
+
+            // Валидация ввода
+            if (isNaN(value) || value < 1 || value > 9) {
+                alert('Пожалуйста, введите число от 1 до 9.');
+                cellDiv.textContent = '';
+                return;
+            }
+
+            if (!websocket || websocket.readyState !== WebSocket.OPEN) {
+                alert('WebSocket соединение не установлено.');
+                return;
+            }
+
+            const move = {
+                player: playerRole,
+                row: row,
+                col: col,
+                value: value
+            };
+            websocket.send(JSON.stringify(move));
+        }
+
+        // Получение Инициальной Доски
+        async function fetchBoard(lobbyId) {
+            try {
+                const response = await fetch(`${API_BASE_URL}/lobbies/${lobbyId}`);
+                if (!response.ok) {
+                    const error = await response.json();
+                    alert(`Ошибка: ${error.detail}`);
+                    return;
+                }
+                const lobby = await response.json();
+                updateBoard(lobby.board);
+            } catch (error) {
+                console.error('Ошибка при получении доски:', error);
+            }
+        }
+
+        // Получение Инициальных Сообщений (если есть)
+        async function fetchMessages(lobbyId) {
+            // В текущей реализации сервер не хранит сообщения,
+            // поэтому здесь можно добавить инициализацию чата, если необходимо.
+        }
+
+        // Автоматическое обновление списка лобби каждые 5 секунд
+        setInterval(fetchLobbies, 5000);
+
+        // Первоначальная загрузка списка лобби
+        fetchLobbies();
+    </script>
+</body>
+</html>

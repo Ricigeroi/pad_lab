@@ -7,6 +7,8 @@ from pydantic import BaseModel
 from typing import List, Dict
 import json
 import logging
+from fastapi.middleware.cors import CORSMiddleware
+
 
 # Настройка логирования
 logging.basicConfig(
@@ -16,7 +18,13 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
-
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:8000"],  # Добавьте ваш клиентский URL
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 TIMEOUT_SECONDS = 5  # Установите желаемую длительность таймаута
 
 # In-memory storage for lobbies
@@ -213,13 +221,8 @@ def generate_sudoku_board():
     """
     board = [[0 for _ in range(9)] for _ in range(9)]
     # Simple example: fill some cells with random numbers for demonstration
-    # В реальной игре нужно генерировать валидную Sudoku доску
-    for _ in range(10):  # Fill 10 cells with random numbers
-        row = random.randint(0, 8)
-        col = random.randint(0, 8)
-        num = random.randint(1, 9)
-        if board[row][col] == 0:
-            board[row][col] = num
+
+    # TODO: сделать генерацию валидной доски
     return board
 
 def is_valid_move(board, row, col, value):
@@ -311,6 +314,7 @@ async def websocket_endpoint(websocket: WebSocket, lobbyId: str):
     except Exception as e:
         logger.error(f"Ошибка в WebSocket-соединении с лобби {lobbyId}: {e}")
         await manager.broadcast(lobbyId, json.dumps({"error": "An error occurred"}))
+
 
 def check_game_over(board):
     """
