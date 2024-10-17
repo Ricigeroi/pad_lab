@@ -10,6 +10,16 @@ from typing import Optional, Dict
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
+from database import AsyncSessionLocal
+from sqlalchemy.ext.asyncio import AsyncSession
+from typing import AsyncGenerator
+from sqlalchemy.future import select
+from models import UserDB
+
+
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    async with AsyncSessionLocal() as session:
+        yield session
 
 app = FastAPI()
 app.add_middleware(
@@ -61,29 +71,44 @@ def verify_password(plain_password, hashed_password):
 def get_password_hash(password):
     return pwd_context.hash(password)
 
-def get_user(username: str) -> Optional[UserInDB]:
-    user = fake_users_db.get(username)
-    if user:
-        return UserInDB(**user)
+async def get_user(db: AsyncSession, username: str) -> Optional[UserDB]:
+    result = await db.execute(select(UserDB).where(UserDB.username == username))
+    return result.scalar_one_or_none()
+
+async def authenticate_user(db: AsyncSession, username: str, password: str) -> Optional[UserDB]:
+    user = await get_user(db, username)
+    if user and verify_password(password, user.hashed_password):
+        return user
     return None
 
-def authenticate_user(username: str, password: str) -> Optional[UserInDB]:
-    user = get_user(username)
-    if not user:
-        return None
-    if not verify_password(password, user.hashed_password):
-        return None
-    return user
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
-    to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
+async def get_current_user(
+    db: AsyncSession = Depends(get_db),
+    token: str = Depends(oauth2_scheme)
+) -> User:
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Не удалось аутентифицировать пользователя",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+        token_data = TokenData(username=username)
+    except JWTError:
+        raise credentials_exception
+    user = await get_user(db, username=token_data.username)
+    if user is None:
+        raise credentials_exception
+    return User(
+        username=user.username,
+        email=user.email,
+        full_name=user.full_name,
+        disabled=user.disabled
+    )
+
 
 # Зависимость для получения текущего пользователя
 async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
@@ -112,28 +137,45 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
 
 # Маршрут регистрации
 @app.post("/game_service/register", response_model=User)
-async def register(user: UserRegister):
-    if user.username in fake_users_db:
+async def register(user: UserRegister, db: AsyncSession = Depends(get_db)):
+    existing_user = await get_user(db, user.username)
+    if existing_user:
         raise HTTPException(status_code=400, detail="Имя пользователя уже существует")
     hashed_password = get_password_hash(user.password)
-    fake_users_db[user.username] = {
-        "username": user.username,
-        "email": user.email,
-        "full_name": user.full_name,
-        "hashed_password": hashed_password,
-        "disabled": False,
-    }
-    return User(
+    new_user = UserDB(
         username=user.username,
         email=user.email,
         full_name=user.full_name,
-        disabled=False
+        hashed_password=hashed_password,
+        disabled=False,
     )
+    db.add(new_user)
+    await db.commit()
+    await db.refresh(new_user)
+    return User(
+        username=new_user.username,
+        email=new_user.email,
+        full_name=new_user.full_name,
+        disabled=new_user.disabled
+    )
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
 
 # Маршрут логина
 @app.post("/game_service/login", response_model=Token)
-async def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    user = authenticate_user(form_data.username, form_data.password)
+async def login(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: AsyncSession = Depends(get_db)
+):
+    user = await authenticate_user(db, form_data.username, form_data.password)
     if not user:
         raise HTTPException(
             status_code=401,
@@ -147,10 +189,14 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
+
 # Пример защищенного маршрута
 @app.get("/game_service/users/me", response_model=User)
-async def read_users_me(current_user: User = Depends(get_current_user)):
+async def read_users_me(
+    current_user: User = Depends(get_current_user)
+):
     return current_user
+
 
 # Существующие маршруты
 SERVICE2_URL = "http://localhost:5002/lobby_service/data"
