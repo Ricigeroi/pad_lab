@@ -30,7 +30,7 @@ app.add_middleware(
 TIMEOUT_SECONDS = 5  # Установите желаемую длительность таймаута
 
 # Конфигурация для JWT
-SECRET_KEY = "banana1"  # Должен совпадать с SECRET_KEY в game-service
+SECRET_KEY = "banana"  # Должен совпадать с SECRET_KEY в game-service
 ALGORITHM = "HS256"
 # Semaphore for limiting concurrent tasks
 MAX_CONCURRENT_TASKS = 20

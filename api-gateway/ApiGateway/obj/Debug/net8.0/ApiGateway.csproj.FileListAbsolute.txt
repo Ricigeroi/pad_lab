@@ -10,6 +10,8 @@ C:\pad_lab\pad_lab\api-gateway\ApiGateway\bin\Debug\net8.0\Microsoft.OpenApi.dll
 C:\pad_lab\pad_lab\api-gateway\ApiGateway\bin\Debug\net8.0\Swashbuckle.AspNetCore.Swagger.dll
 C:\pad_lab\pad_lab\api-gateway\ApiGateway\bin\Debug\net8.0\Swashbuckle.AspNetCore.SwaggerGen.dll
 C:\pad_lab\pad_lab\api-gateway\ApiGateway\bin\Debug\net8.0\Swashbuckle.AspNetCore.SwaggerUI.dll
+C:\pad_lab\pad_lab\api-gateway\ApiGateway\bin\Debug\net8.0\System.IO.Hashing.dll
+C:\pad_lab\pad_lab\api-gateway\ApiGateway\bin\Debug\net8.0\Yarp.ReverseProxy.dll
 C:\pad_lab\pad_lab\api-gateway\ApiGateway\obj\Debug\net8.0\ApiGateway.csproj.AssemblyReference.cache
 C:\pad_lab\pad_lab\api-gateway\ApiGateway\obj\Debug\net8.0\ApiGateway.GeneratedMSBuildEditorConfig.editorconfig
 C:\pad_lab\pad_lab\api-gateway\ApiGateway\obj\Debug\net8.0\ApiGateway.AssemblyInfoInputs.cache

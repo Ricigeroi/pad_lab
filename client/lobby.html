@@ -44,8 +44,10 @@
     <div id="notifications"></div>
 
     <script>
-        const GAME_SERVICE_URL = 'http://localhost:5001/game_service'; // URL вашего game-service
-        const LOBBY_SERVICE_URL = 'http://localhost:5002'; // URL вашего lobby-service
+        // Update: Set the BASE_URL to point to the gateway
+        const BASE_URL = 'http://localhost:5029'; // URL of your gateway
+        const GAME_SERVICE_URL = `${BASE_URL}/game_service`; // Gateway path for game-service
+        const LOBBY_SERVICE_URL = `${BASE_URL}`; // Since lobby endpoints are at the root or under /lobby_service
 
         let websocket = null;
         let currentLobbyId = null;
@@ -204,8 +206,9 @@
             }
 
             try {
-                // Передача токена через параметры WebSocket URL
-                websocket = new WebSocket(`ws://localhost:5002/ws/lobby/${lobbyId}?token=${accessToken}`); // Замените на адрес вашего сервера
+                // Update: Use the gateway URL for WebSocket connection
+                const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                websocket = new WebSocket(`${wsProtocol}//localhost:5029/ws/lobby/${lobbyId}?token=${accessToken}`); // Use gateway address
 
                 websocket.onopen = () => {
                     console.log('WebSocket соединение открыто');

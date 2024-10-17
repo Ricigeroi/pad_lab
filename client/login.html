@@ -35,7 +35,10 @@
     <div id="notifications"></div>
 
     <script>
-        const GAME_SERVICE_URL = 'http://localhost:5001/game_service'; // URL вашего game-service
+        // Update: Set the BASE_URL to point to the gateway
+        const BASE_URL = 'http://localhost:5029'; // URL of your gateway
+        const GAME_SERVICE_URL = `${BASE_URL}/game_service`; // Gateway path for game-service
+
         const authMessage = document.getElementById('auth-message');
         const registerForm = document.getElementById('register-form');
         const showRegisterButton = document.getElementById('show-register-button');
