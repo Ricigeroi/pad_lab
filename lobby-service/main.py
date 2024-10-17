@@ -11,6 +11,8 @@ import json
 import logging
 from fastapi.middleware.cors import CORSMiddleware
 from jose import JWTError, jwt
+from sudoku import Sudoku
+
 
 # Настройка логирования
 logging.basicConfig(
@@ -393,7 +395,8 @@ def generate_sudoku_board():
     """
     Возвращает случайно выбранную предгенерированную доску Sudoku из списка.
     """
-    return random.choice(sudoku_boards)
+    puzzle = Sudoku(3).difficulty(0.1)
+    return export_as_list(puzzle)
 
 def is_valid_move(board, row, col, value):
     """
@@ -424,3 +427,15 @@ def is_valid_move(board, row, col, value):
                 return False, "Value already exists in the 3x3 block."
 
     return True, "Valid move."
+
+
+def export_as_list(self, flat=False):
+    """
+    Exports the current Sudoku board as a list of lists or a flat list.
+
+    :param flat: If True, returns a flat list. If False, returns a list of lists (rows).
+    :return: List representing the Sudoku board where empty cells are replaced by 0.
+    """
+    if flat:
+        return [cell if cell is not None else 0 for row in self.board for cell in row]
+    return [[cell if cell is not None else 0 for cell in row] for row in self.board]
