@@ -1,19 +1,20 @@
 # game_service.py
 import asyncio
-from fastapi import FastAPI, HTTPException, Depends, status
+from datetime import datetime, timedelta
+from typing import AsyncGenerator, Dict, Optional
+
+import httpx
+from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from pydantic import BaseModel
-import httpx
-from typing import Optional, Dict
-from passlib.context import CryptContext
 from jose import JWTError, jwt
-from datetime import datetime, timedelta
-from database import AsyncSessionLocal
+from passlib.context import CryptContext
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import AsyncGenerator
 from sqlalchemy.future import select
+
+from database import AsyncSessionLocal
 from models import UserDB
 
 

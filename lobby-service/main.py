@@ -1,16 +1,16 @@
 # lobby_service.py
-import random
 import asyncio
-import uuid
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depends, Query, Header
-import asyncio
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
-from typing import List, Dict, Optional
 import json
 import logging
+import random
+import uuid
+from typing import List, Dict, Optional
+
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depends, Query, Header
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from jose import JWTError, jwt
+from pydantic import BaseModel
 from sudoku import Sudoku
 
 
@@ -42,7 +42,6 @@ async def limit_concurrent_tasks():
     async with semaphore:
         yield
 
-# In-memory storage for lobbies
 # In-memory storage for lobbies
 lobbies = {}
 games = {}
@@ -184,39 +183,6 @@ def get_username_from_websocket(lobby_id: str, websocket: WebSocket) -> Optional
 manager = ConnectionManager()
 
 # Маршруты
-
-@app.post("/lobby_service/create", response_class=JSONResponse)
-async def create_lobby(
-    dependency: str = Depends(limit_concurrent_tasks), 
-    current_user: str = Depends(get_current_user)
-):
-    # Your endpoint logic here
-    pass
-
-@app.post("/lobby_service/join", response_class=JSONResponse)
-async def join_lobby(
-    dependency: str = Depends(limit_concurrent_tasks), 
-    current_user: str = Depends(get_current_user)
-):
-    # Your endpoint logic here
-    pass
-
-@app.post("/lobby_service/leave", response_class=JSONResponse)
-async def leave_lobby(
-    dependency: str = Depends(limit_concurrent_tasks), 
-    current_user: str = Depends(get_current_user)
-):
-    # Your endpoint logic here
-    pass
-
-@app.post("/lobby_service/start", response_class=JSONResponse)
-async def start_game(
-    dependency: str = Depends(limit_concurrent_tasks), 
-    current_user: str = Depends(get_current_user)
-):
-    # Your endpoint logic here
-    pass
-
 @app.get("/lobby_service/hello", response_class=JSONResponse)
 async def hello_lobby_service(dependency: str = Depends(limit_concurrent_tasks), current_user: str = Depends(get_current_user)):
     """
@@ -375,27 +341,12 @@ def check_game_over(board):
     # Здесь предполагается, что все ходы были валидны, поэтому доска корректна
     return True, "Game Over: The Sudoku puzzle is completed!"
 
-# Pre-generated Sudoku boards
-sudoku_boards = [
-    [
-        [8, 0, 0, 0, 0, 0, 7, 6, 0],
-        [0, 4, 1, 0, 9, 6, 2, 0, 8],
-        [7, 0, 0, 0, 0, 0, 0, 0, 0],
-        [9, 0, 4, 1, 0, 2, 8, 3, 6],
-        [5, 1, 8, 0, 0, 4, 7, 0, 2],
-        [0, 6, 3, 0, 0, 0, 0, 1, 0],
-        [0, 0, 0, 0, 8, 7, 5, 0, 1],
-        [1, 0, 9, 0, 2, 3, 6, 8, 7],
-        [0, 8, 0, 6, 1, 0, 0, 2, 0]
-    ],
-    # Добавьте дополнительные доски Sudoku здесь, если необходимо
-]
 
-def generate_sudoku_board():
+def generate_sudoku_board(difficulty=0.1):
     """
-    Возвращает случайно выбранную предгенерированную доску Sudoku из списка.
+    Возвращает случайно выбранную предгенерированную доску Sudoku с заданной сложностью.
     """
-    puzzle = Sudoku(3).difficulty(0.1)
+    puzzle = Sudoku(3).difficulty(difficulty)
     return export_as_list(puzzle)
 
 def is_valid_move(board, row, col, value):
