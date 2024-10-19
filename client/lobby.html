@@ -1,10 +1,174 @@
-<!-- lobby.html -->
 <!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
     <title>Sudoku Lobby Game</title>
     <link rel="stylesheet" href="lobby.css">
+    <style>
+        /* Ваши стили CSS */
+
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f2f2f2;
+            margin: 0;
+            padding: 0;
+        }
+
+        #container {
+            width: 80%;
+            margin: auto;
+            overflow: hidden;
+        }
+
+        h1, h2 {
+            text-align: center;
+        }
+
+        #create-lobby, #lobbies-list, #game-section, #game-history {
+            background-color: #fff;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+        }
+
+        #board {
+            display: grid;
+            grid-template-columns: repeat(9, 40px);
+            grid-template-rows: repeat(9, 40px);
+            gap: 2px;
+            margin: 20px auto;
+            width: fit-content;
+        }
+
+        .cell {
+            width: 40px;
+            height: 40px;
+            border: 1px solid #ccc;
+            text-align: center;
+            line-height: 40px;
+            font-size: 18px;
+        }
+
+        .editable {
+            background-color: #e6ffe6;
+            cursor: pointer;
+        }
+
+        .selected {
+            border: 2px solid #000;
+        }
+
+        #messages {
+            max-height: 200px;
+            overflow-y: auto;
+            background-color: #f9f9f9;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+
+        #send-message {
+            display: flex;
+            justify-content: space-between;
+        }
+
+        #send-message input {
+            width: 80%;
+            padding: 10px;
+        }
+
+        #send-message button {
+            width: 18%;
+            padding: 10px;
+        }
+
+        #notifications {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            z-index: 1000;
+        }
+
+        .notification {
+            background-color: #f44336;
+            color: white;
+            padding: 15px;
+            margin-bottom: 5px;
+            border-radius: 3px;
+            position: relative;
+            min-width: 200px;
+        }
+
+        .notification.success {
+            background-color: #4CAF50;
+        }
+
+        .close-btn {
+            position: absolute;
+            top: 5px;
+            right: 10px;
+            color: white;
+            font-size: 18px;
+            cursor: pointer;
+        }
+
+        #game-history-list li {
+            margin-bottom: 10px;
+        }
+
+        #game-history-list button {
+            margin-left: 10px;
+        }
+
+        /* Стили для модального окна */
+        #chat-history-modal {
+            position: fixed;
+            z-index: 1;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.4);
+        }
+
+        #chat-history-content {
+            background-color: #fefefe;
+            margin: 5% auto;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 50%;
+            position: relative;
+        }
+
+        #close-chat-history {
+            color: #aaa;
+            position: absolute;
+            top: 10px;
+            right: 20px;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        #close-chat-history:hover,
+        #close-chat-history:focus {
+            color: black;
+            text-decoration: none;
+            cursor: pointer;
+        }
+
+        #chat-history-list {
+            list-style-type: none;
+            padding: 0;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        #chat-history-list li {
+            padding: 5px 0;
+            border-bottom: 1px solid #ccc;
+        }
+    </style>
 </head>
 <body>
     <div id="container">
@@ -38,16 +202,29 @@
             </div>
             <button id="leave-button">Покинуть Лобби</button>
         </div>
+
+        <!-- История Игр -->
+        <div id="game-history">
+            <h2>Ваша История Игр</h2>
+            <ul id="game-history-list"></ul>
+        </div>
     </div>
 
     <!-- Блок для отображения уведомлений -->
     <div id="notifications"></div>
 
+    <!-- Модальное окно для истории чата -->
+    <div id="chat-history-modal" style="display: none;">
+        <div id="chat-history-content">
+            <span id="close-chat-history">&times;</span>
+            <h2>История чата игры</h2>
+            <ul id="chat-history-list"></ul>
+        </div>
+    </div>
+
     <script>
-        // Update: Set the BASE_URL to point to the gateway
-        const BASE_URL = 'http://localhost:5029'; // URL of your gateway
-        const GAME_SERVICE_URL = `${BASE_URL}/game_service`; // Gateway path for game-service
-        const LOBBY_SERVICE_URL = `${BASE_URL}`; // Since lobby endpoints are at the root or under /lobby_service
+        const BASE_URL = 'http://localhost:5029'; // URL вашего API Gateway
+        const LOBBY_SERVICE_URL = `${BASE_URL}`; // Если лобби-сервис доступен по корню или под /lobby_service
 
         let websocket = null;
         let currentLobbyId = null;
@@ -58,6 +235,15 @@
         if (!accessToken) {
             // Если токен отсутствует, перенаправить на страницу входа
             window.location.href = 'login.html';
+        } else {
+            // Decode JWT to get the username
+            const tokenParts = accessToken.split('.');
+            if (tokenParts.length === 3) {
+                const payload = JSON.parse(atob(tokenParts[1]));
+                username = payload.sub;
+                // Fetch game history
+                fetchGameHistory();
+            }
         }
 
         // Элементы DOM
@@ -206,9 +392,9 @@
             }
 
             try {
-                // Update: Use the gateway URL for WebSocket connection
+                // Используем URL Gateway для WebSocket подключения
                 const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                websocket = new WebSocket(`${wsProtocol}//localhost:5029/ws/lobby/${lobbyId}?token=${accessToken}`); // Use gateway address
+                websocket = new WebSocket(`${wsProtocol}//localhost:5029/ws/lobby/${lobbyId}?token=${accessToken}`); // Используем адрес Gateway
 
                 websocket.onopen = () => {
                     console.log('WebSocket соединение открыто');
@@ -239,7 +425,6 @@
                 currentLobbyIdSpan.textContent = lobbyId;
                 gameSection.style.display = 'block';
                 fetchBoard(lobbyId);
-                fetchMessages(lobbyId);
 
             } catch (error) {
                 console.error('Ошибка при подключении к WebSocket:', error);
@@ -306,7 +491,6 @@
         function resetGameSection() {
             gameSection.style.display = 'none';
             currentLobbyId = null;
-            username = null;
             boardDiv.innerHTML = '';
             messagesDiv.innerHTML = '';
         }
@@ -343,12 +527,6 @@
                 console.error('Ошибка при получении доски:', error);
                 showNotification('Произошла ошибка при получении доски.', 'error');
             }
-        }
-
-        // Получение Инициальных Сообщений (если есть)
-        async function fetchMessages(lobbyId) {
-            // В текущей реализации сервер не хранит сообщения,
-            // поэтому здесь можно добавить инициализацию чата, если необходимо.
         }
 
         // Рендеринг Доски
@@ -419,6 +597,94 @@
             };
             websocket.send(JSON.stringify(move));
 
+        }
+
+        // Функция для получения и отображения истории игр
+        async function fetchGameHistory() {
+            try {
+                const response = await fetch(`${LOBBY_SERVICE_URL}/users/${username}/games`, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                });
+                if (response.ok) {
+                    const games = await response.json();
+                    renderGameHistory(games);
+                } else {
+                    const error = await response.json();
+                    showNotification(`Ошибка при получении истории игр: ${error.detail}`, 'error');
+                }
+            } catch (error) {
+                console.error('Ошибка при получении истории игр:', error);
+                showNotification('Произошла ошибка при получении истории игр.', 'error');
+            }
+        }
+
+        // Функция для отображения истории игр
+        function renderGameHistory(games) {
+            const gameHistoryList = document.getElementById('game-history-list');
+            gameHistoryList.innerHTML = '';
+            games.forEach(game => {
+                const li = document.createElement('li');
+                li.textContent = `Game ID: ${game.game_id}, Started: ${new Date(game.start_time).toLocaleString()}, Winner: ${game.winner || 'In progress'}`;
+                
+                // Кнопка для просмотра истории чата
+                const chatHistoryButton = document.createElement('button');
+                chatHistoryButton.textContent = 'Просмотреть историю чата';
+                chatHistoryButton.addEventListener('click', () => {
+                    fetchGameChatHistory(game.id);
+                });
+
+                li.appendChild(chatHistoryButton);
+                gameHistoryList.appendChild(li);
+            });
+        }
+
+        // Функция для получения и отображения истории чата конкретной игры
+        async function fetchGameChatHistory(gameId) {
+            try {
+                const response = await fetch(`${LOBBY_SERVICE_URL}/games/${gameId}/chat_history`, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                });
+                if (response.ok) {
+                    const messages = await response.json();
+                    renderChatHistory(messages);
+                } else {
+                    const error = await response.json();
+                    showNotification(`Ошибка при получении истории чата: ${error.detail}`, 'error');
+                }
+            } catch (error) {
+                console.error('Ошибка при получении истории чата:', error);
+                showNotification('Произошла ошибка при получении истории чата.', 'error');
+            }
+        }
+
+        // Функция для отображения истории чата в модальном окне
+        function renderChatHistory(messages) {
+            const chatHistoryList = document.getElementById('chat-history-list');
+            chatHistoryList.innerHTML = '';
+            messages.forEach(message => {
+                const li = document.createElement('li');
+                li.textContent = `[${new Date(message.timestamp).toLocaleString()}] ${message.sender}: ${message.message}`;
+                chatHistoryList.appendChild(li);
+            });
+            // Отображаем модальное окно
+            document.getElementById('chat-history-modal').style.display = 'block';
+        }
+
+        // Закрытие модального окна
+        document.getElementById('close-chat-history').onclick = function() {
+            document.getElementById('chat-history-modal').style.display = 'none';
+        }
+
+        // Закрытие модального окна при клике вне его области
+        window.onclick = function(event) {
+            const modal = document.getElementById('chat-history-modal');
+            if (event.target == modal) {
+                modal.style.display = 'none';
+            }
         }
 
         // Автоматическое обновление списка лобби каждые 5 секунд

@@ -1,4 +1,3 @@
-# lobby_service.py
 import asyncio
 import json
 import logging
@@ -13,6 +12,14 @@ from jose import JWTError, jwt
 from pydantic import BaseModel
 from sudoku import Sudoku
 
+# Импорты для работы с базой данных
+from databases import Database
+import sqlalchemy
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON, ForeignKeyConstraint
+from sqlalchemy.sql import func
+from sqlalchemy.future import select  # Используем future.select для совместимости с SQLAlchemy 1.4+
+from datetime import datetime
+from contextlib import asynccontextmanager
 
 # Настройка логирования
 logging.basicConfig(
@@ -21,7 +28,83 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI()
+# Конфигурация для JWT
+SECRET_KEY = "banana"  # Должен совпадать с SECRET_KEY в game-service
+ALGORITHM = "HS256"
+
+# Semaphore для ограничения количества одновременных задач
+MAX_CONCURRENT_TASKS = 20
+semaphore = asyncio.Semaphore(MAX_CONCURRENT_TASKS)
+
+async def limit_concurrent_tasks():
+    async with semaphore:
+        yield
+
+# In-memory хранилище для лобби и игр
+lobbies = {}
+games = {}
+
+# Конфигурация базы данных
+DATABASE_URL = "postgresql://postgres:admin@localhost:5432/pad_gameHistory"  # Замените на ваш фактический URL базы данных
+
+database = Database(DATABASE_URL)
+metadata = sqlalchemy.MetaData()
+
+# Определение таблиц базы данных
+users_table = sqlalchemy.Table(
+    'users',
+    metadata,
+    Column('id', Integer, primary_key=True),
+    Column('username', String, unique=True),
+    Column('created_at', DateTime, server_default=func.now()),
+)
+
+games_table = sqlalchemy.Table(
+    'games',
+    metadata,
+    Column('id', Integer, primary_key=True),
+    Column('lobby_id', String),
+    Column('game_id', String),
+    Column('start_time', DateTime),
+    Column('end_time', DateTime, nullable=True),
+    Column('winner', String, nullable=True),
+    Column('board', JSON),
+)
+
+game_players_table = sqlalchemy.Table(
+    'game_players',
+    metadata,
+    Column('game_id', Integer, ForeignKey('games.id')),
+    Column('player_id', Integer, ForeignKey('users.id')),
+    sqlalchemy.PrimaryKeyConstraint('game_id', 'player_id'),
+)
+
+chat_messages_table = sqlalchemy.Table(
+    'chat_messages',
+    metadata,
+    Column('id', Integer, primary_key=True),
+    Column('game_id', Integer, nullable=False),
+    Column('lobby_id', String, nullable=True),  # Можно удалить, если не нужен
+    Column('sender', String),
+    Column('message', String),
+    Column('timestamp', DateTime, server_default=func.now()),
+    ForeignKeyConstraint(['game_id'], ['games.id'], ondelete='CASCADE')
+)
+
+# Создаем приложение FastAPI с использованием lifespan
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Код при запуске
+    await database.connect()
+    # Для первоначальной настройки; в продакшене используйте миграции
+    engine = sqlalchemy.create_engine(DATABASE_URL)
+    metadata.create_all(engine)
+    yield
+    # Код при завершении работы
+    await database.disconnect()
+
+app = FastAPI(lifespan=lifespan)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Замените на ваш клиентский URL в продакшене
@@ -30,21 +113,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 TIMEOUT_SECONDS = 5  # Установите желаемую длительность таймаута
-
-# Конфигурация для JWT
-SECRET_KEY = "banana"  # Должен совпадать с SECRET_KEY в game-service
-ALGORITHM = "HS256"
-# Semaphore for limiting concurrent tasks
-MAX_CONCURRENT_TASKS = 20
-semaphore = asyncio.Semaphore(MAX_CONCURRENT_TASKS)
-
-async def limit_concurrent_tasks():
-    async with semaphore:
-        yield
-
-# In-memory storage for lobbies
-lobbies = {}
-games = {}
 
 # Модели Pydantic
 class LobbyRequest(BaseModel):
@@ -76,6 +144,22 @@ class MoveRequest(BaseModel):
 class TokenData(BaseModel):
     username: Optional[str] = None
 
+class ChatMessageResponse(BaseModel):
+    id: int
+    game_id: int
+    sender: str
+    message: str
+    timestamp: datetime
+
+class GameResultResponse(BaseModel):
+    id: int
+    lobby_id: str
+    game_id: str
+    start_time: datetime
+    end_time: Optional[datetime]
+    winner: Optional[str]
+    board: List[List[int]]
+
 # Функции для проверки токена
 def verify_token(token: str) -> Optional[str]:
     try:
@@ -95,6 +179,14 @@ async def get_current_user(authorization: str = Header(...)) -> str:
     username = verify_token(token)
     if username is None:
         raise HTTPException(status_code=401, detail="Invalid token")
+
+    # Проверяем, существует ли пользователь в базе данных
+    query = select(users_table).where(users_table.c.username == username)
+    user = await database.fetch_one(query)
+    if user is None:
+        # Вставляем нового пользователя
+        query = users_table.insert().values(username=username)
+        await database.execute(query)
     return username
 
 # Класс для управления соединениями WebSocket
@@ -136,6 +228,26 @@ class ConnectionManager:
         )
         lobbies[lobby_id]["players"].append(player)
         logger.info(f"{player.name} подключён к лобби {lobby_id}")
+
+        # Добавляем игрока в игру в базе данных
+        # Получаем игру из базы данных
+        query = select(games_table).where(games_table.c.lobby_id == lobby_id)
+        game = await database.fetch_one(query)
+        if game:
+            # Получаем user ID
+            query = select(users_table).where(users_table.c.username == username)
+            user = await database.fetch_one(query)
+            if user:
+                # Проверяем, есть ли игрок уже в игре
+                query = select(game_players_table).where(
+                    (game_players_table.c.game_id == game['id']) &
+                    (game_players_table.c.player_id == user['id'])
+                )
+                existing_player = await database.fetch_one(query)
+                if existing_player is None:
+                    # Вставляем в game_players_table
+                    query = game_players_table.insert().values(game_id=game['id'], player_id=user['id'])
+                    await database.execute(query)
 
         # Отправляем сообщение о подключении с реальным именем пользователя
         await websocket.send_text(json.dumps({"message": f"{player.name} подключился к лобби."}))
@@ -216,7 +328,7 @@ async def _get_service2_data():
 @app.post("/lobbies", response_model=LobbyResponse)
 async def create_lobby(request: LobbyRequest, username: str = Depends(get_current_user)):
     """
-    Creates a new lobby and generates a Sudoku board.
+    Создает новое лобби и генерирует доску Sudoku.
     """
     lobby_id = str(uuid.uuid4())
     board = generate_sudoku_board()
@@ -225,17 +337,30 @@ async def create_lobby(request: LobbyRequest, username: str = Depends(get_curren
         "players": [],
         "board": board
     }
+    logger.info(f"Создано новое лобби {lobby_id} для игры пользователем {username}")
+
+    # Вставляем новую игру в базу данных и получаем ее ID
+    query = games_table.insert().values(
+        lobby_id=lobby_id,
+        game_id=request.gameId,
+        start_time=datetime.utcnow(),
+        board=board
+    )
+    game_id = await database.execute(query)
+
+    # Сохраняем game_id в памяти для использования в WebSocket
     games[request.gameId] = {
         "lobby_id": lobby_id,
-        "board": board
+        "board": board,
+        "game_id": game_id  # Сохраняем game_id
     }
-    logger.info(f"Создано новое лобби {lobby_id} для игры пользователем {username}")
+
     return LobbyResponse(lobbyId=lobby_id, message="Lobby created.", board=board)
 
 @app.get("/lobbies/{lobbyId}", response_model=LobbyDetailsResponse)
 async def get_lobby_details(lobbyId: str, dependency: str = Depends(limit_concurrent_tasks), username: str = Depends(get_current_user)):
     """
-    Fetches the details of a specific lobby along with the current board.
+    Получает детали конкретного лобби вместе с текущей доской.
     """
     logger.info(f"Пользователь {username} запрашивает детали лобби {lobbyId}")
     lobby = lobbies.get(lobbyId)
@@ -252,7 +377,7 @@ async def get_lobby_details(lobbyId: str, dependency: str = Depends(limit_concur
 @app.get("/lobbies", response_model=List[LobbyDetailsResponse])
 async def get_all_lobbies(dependency: str = Depends(limit_concurrent_tasks), username: str = Depends(get_current_user)):
     """
-    Fetches the details of all open lobbies.
+    Получает детали всех открытых лобби.
     """
     all_lobbies = []
     for lobby_id, lobby in lobbies.items():
@@ -275,7 +400,7 @@ async def websocket_endpoint(websocket: WebSocket, lobbyId: str, token: str = Qu
         await websocket.send_text(json.dumps({"error": "Invalid token"}))
         await websocket.close(code=1008)  # Policy Violation
         return
-    
+
     logger.info(f"Пользователь {username} подключается к WebSocket лобби {lobbyId}")
     success = await manager.connect(lobbyId, websocket, username)
     if not success:
@@ -289,7 +414,19 @@ async def websocket_endpoint(websocket: WebSocket, lobbyId: str, token: str = Qu
             try:
                 data = json.loads(data)
                 if data.get("type") == "chat":
-                    # Это сообщение чата, отправьте его всем игрокам
+                    # Получаем game_id из базы данных по lobby_id
+                    query = select(games_table).where(games_table.c.lobby_id == lobbyId)
+                    game = await database.fetch_one(query)
+                    if game:
+                        # Вставляем сообщение чата в базу данных с game_id
+                        query = chat_messages_table.insert().values(
+                            game_id=game['id'],
+                            sender=data['player'],
+                            message=data['message'],
+                            timestamp=datetime.utcnow()
+                        )
+                        await database.execute(query)
+                    # Отправляем сообщение всем участникам лобби
                     await manager.broadcast(lobbyId, json.dumps({"message": f"{data['player']}: {data['message']}"}))
                 elif data.get("type") == "move":
                     # Это ход игры, обработайте его
@@ -298,9 +435,21 @@ async def websocket_endpoint(websocket: WebSocket, lobbyId: str, token: str = Qu
                     valid, message = is_valid_move(current_board, move_request.row, move_request.col, move_request.value)
                     if valid:
                         current_board[move_request.row][move_request.col] = move_request.value
+
+                        # Обновляем доску в базе данных
+                        query = games_table.update().where(games_table.c.lobby_id == lobbyId).values(board=current_board)
+                        await database.execute(query)
+
                         logger.info(f"Ход принят: {move_request.player} поставил {move_request.value} на позицию ({move_request.row}, {move_request.col})")
                         game_over, game_message = check_game_over(current_board)
                         if game_over:
+                            # Обновляем end_time и winner в базе данных
+                            query = games_table.update().where(games_table.c.lobby_id == lobbyId).values(
+                                end_time=datetime.utcnow(),
+                                winner=move_request.player
+                            )
+                            await database.execute(query)
+
                             await manager.broadcast(lobbyId, json.dumps({
                                 "message": game_message,
                                 "board": current_board
@@ -341,8 +490,7 @@ def check_game_over(board):
     # Здесь предполагается, что все ходы были валидны, поэтому доска корректна
     return True, "Game Over: The Sudoku puzzle is completed!"
 
-
-def generate_sudoku_board(difficulty=0.1):
+def generate_sudoku_board(difficulty=0.05):
     """
     Возвращает случайно выбранную предгенерированную доску Sudoku с заданной сложностью.
     """
@@ -379,14 +527,56 @@ def is_valid_move(board, row, col, value):
 
     return True, "Valid move."
 
-
-def export_as_list(self, flat=False):
+def export_as_list(puzzle, flat=False):
     """
-    Exports the current Sudoku board as a list of lists or a flat list.
-
-    :param flat: If True, returns a flat list. If False, returns a list of lists (rows).
-    :return: List representing the Sudoku board where empty cells are replaced by 0.
+    Экспортирует доску Sudoku в виде списка списков.
     """
+    board = puzzle.board
     if flat:
-        return [cell if cell is not None else 0 for row in self.board for cell in row]
-    return [[cell if cell is not None else 0 for cell in row] for row in self.board]
+        return [cell if cell is not None else 0 for row in board for cell in row]
+    return [[cell if cell is not None else 0 for cell in row] for row in board]
+
+# Endpoint для получения истории игр пользователя
+@app.get("/users/{username}/games", response_model=List[GameResultResponse])
+async def get_user_games(username: str, current_user: str = Depends(get_current_user)):
+    if username != current_user:
+        raise HTTPException(status_code=403, detail="Not authorized to view other user's game history")
+    # Получаем user ID
+    query = select(users_table).where(users_table.c.username == username)
+    user = await database.fetch_one(query)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    # Получаем игры, в которых пользователь участвовал
+    query = select(games_table).join(
+        game_players_table, games_table.c.id == game_players_table.c.game_id
+    ).where(game_players_table.c.player_id == user['id'])
+    games_list = await database.fetch_all(query)
+    return [GameResultResponse(**dict(game)) for game in games_list]
+
+# Endpoint для получения истории чата конкретной игры
+@app.get("/games/{game_id}/chat_history", response_model=List[ChatMessageResponse])
+async def get_game_chat_history(game_id: int, current_user: str = Depends(get_current_user)):
+    # Проверяем, что пользователь участвовал в этой игре
+    query = select(games_table).where(games_table.c.id == game_id)
+    game = await database.fetch_one(query)
+    if game is None:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    # Получаем user ID
+    query = select(users_table).where(users_table.c.username == current_user)
+    user = await database.fetch_one(query)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    query = select(game_players_table).where(
+        (game_players_table.c.game_id == game_id) &
+        (game_players_table.c.player_id == user['id'])
+    )
+    participation = await database.fetch_one(query)
+    if participation is None:
+        raise HTTPException(status_code=403, detail="Not authorized to view this game's chat history")
+
+    # Получаем историю чата для данной игры
+    query = select(chat_messages_table).where(chat_messages_table.c.game_id == game_id).order_by(chat_messages_table.c.timestamp)
+    messages = await database.fetch_all(query)
+    return [ChatMessageResponse(**dict(message)) for message in messages]
