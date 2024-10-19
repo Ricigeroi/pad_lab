@@ -177,7 +177,7 @@
         <!-- Создание Лобби -->
         <div id="create-lobby">
             <h2>Создать Лобби</h2>
-            <input type="text" id="game-id" placeholder="Введите Game ID" value="sudoku">
+            <input type="text" id="game-id" placeholder="Введите Game ID">
             <button id="create-lobby-button">Создать Лобби</button>
         </div>
 
@@ -626,7 +626,7 @@
             gameHistoryList.innerHTML = '';
             games.forEach(game => {
                 const li = document.createElement('li');
-                li.textContent = `Game ID: ${game.game_id}, Started: ${new Date(game.start_time).toLocaleString()}, Winner: ${game.winner || 'In progress'}`;
+                li.textContent = `Game ID: ${game.game_id}, Started: ${new Date(game.start_time).toLocaleString()}, Winner: ${game.winner || 'n/a'}`;
                 
                 // Кнопка для просмотра истории чата
                 const chatHistoryButton = document.createElement('button');
