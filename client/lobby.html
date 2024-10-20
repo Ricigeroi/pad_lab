@@ -95,6 +95,37 @@
             user-select: none;
         }
 
+        /* Толстые границы для блоков 3x3 */
+        #board .cell {
+            border: 1px solid #ccc;
+            z-index: 100;
+        }
+
+        #board .cell:nth-child(3n+1) {
+            border-left: 2px solid #000;
+            /* Левые границы каждого третьего блока */
+        }
+
+        #board .cell:nth-child(3n) {
+            border-right: 2px solid #000;
+            /* Правые границы каждого третьего блока */
+        }
+
+        #board .cell:nth-of-type(n+19):nth-of-type(-n+27),
+        #board .cell:nth-of-type(n+46):nth-of-type(-n+54),
+        #board .cell:nth-of-type(n+73):nth-of-type(-n+81) {
+            border-bottom: 2px solid #000;
+            /* Нижние границы для третьих рядов */
+        }
+
+        #board .cell:nth-of-type(-n+9),
+        #board .cell:nth-of-type(n+28):nth-of-type(-n+36),
+        #board .cell:nth-of-type(n+55):nth-of-type(-n+63) {
+            border-top: 2px solid #000;
+            /* Верхние границы для первых рядов */
+        }
+
+
         .pre-filled {
             background-color: #d3d3d3;
             cursor: default;
@@ -124,20 +155,30 @@
             color: #000;
         }
 
-        /* Стиль для кнопки стирания */
+        /* Кнопка стирания должна занимать всю клетку */
         .erase-button {
             position: absolute;
-            top: 2px;
-            right: 2px;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
             background-color: transparent;
             border: none;
-            color: #ff0000;
-            font-size: 16px;
+            font-size: 0;
+            /* Скрыть текст */
             cursor: pointer;
+            z-index: 1;
+            /* Поставить её выше текста */
         }
 
         .erase-button:hover {
-            color: #cc0000;
+            background-color: rgba(255, 0, 0, 0.2);
+            /* Опционально: добавить красный оттенок при наведении */
+        }
+
+        /* Удаляем border у пустых клеток */
+        .cell.editable {
+            border: 1px solid #ccc;
         }
 
         /* Стилизация чата */
@@ -279,16 +320,37 @@
 
         /* Стилизация списка игроков и счётов */
         #players-list,
-        #scores-list {
-            list-style-type: none;
-            padding: 0;
-        }
-
-        #players-list li,
-        #scores-list li {
+        #players-list li {
             margin-bottom: 5px;
             display: flex;
             align-items: center;
+        }
+
+        /* Сделать список счётов горизонтальным и увеличить жирность шрифта */
+        #scores-list {
+            display: flex;
+            flex-direction: row;
+            justify-content: flex-start;
+            align-items: center;
+            padding: 0;
+            /* Убрать отступы списка */
+            margin: 0;
+            /* Убрать внешние отступы списка */
+        }
+
+        #scores-list li {
+            margin-right: 20px;
+            /* Отступ между элементами списка */
+            font-weight: bold;
+            /* Увеличенная жирность шрифта */
+            display: flex;
+            align-items: center;
+        }
+
+        /* Убедитесь, что цветовые индикаторы не влияют на выравнивание текста */
+        .player-color {
+            margin-right: 8px;
+            /* Отступ между индикатором и именем игрока */
         }
 
         .player-color {
@@ -758,6 +820,7 @@
         }
 
         // Обновление очков
+        // Обновление очков
         function updateScores(scores) {
             scoresList.innerHTML = ''; // Очистить список
             for (const [player, score] of Object.entries(scores)) {
@@ -772,11 +835,20 @@
                 }
                 li.appendChild(colorIndicator);
 
-                // Добавляем имя и счёт
-                li.textContent = `${player}: ${score}`;
+                // Добавляем имя игрока в его цвете и счёт
+                const playerNameSpan = document.createElement('span');
+                playerNameSpan.classList.add();
+                playerNameSpan.textContent = player;
+                li.appendChild(playerNameSpan);
+
+                // Добавляем счёт после имени
+                const scoreText = document.createTextNode(`: ${score}`);
+                li.appendChild(scoreText);
+
                 scoresList.appendChild(li);
             }
         }
+
 
         // Получение и Рендеринг Доски
         async function fetchBoard(lobbyId) {
