@@ -284,18 +284,27 @@ class ConnectionManager:
         # Отправляем сообщение о подключении с реальным именем пользователя и его цветом
         await websocket.send_text(json.dumps({
             "type": "system",
+            "player": player.name,
+            "color": player.color,
             "message": f"{player.name} подключился к лобби.",
-            "color": player.color  # Если цвет необходим на фронтенде, иначе можно удалить
         }))
 
-
+        # Если после подключения лобби заполнено, начинаем игру
         if len(self.active_connections[lobby_id]) == 2:
             await self.broadcast(lobby_id, json.dumps({
                 "type": "system",
                 "message": "Оба игрока подключены. Игра начинается!"
             }))
-
             logger.info(f"Оба игрока подключены к лобби {lobby_id}. Игра начинается!")
+
+        # **НОВОЕ:** Уведомляем всех остальных игроков о новом подключении
+        if len(self.active_connections[lobby_id]) > 1:
+            await self.broadcast(lobby_id, json.dumps({
+                "type": "system",
+                "player": player.name,
+                "color": player.color,
+                "message": f"{player.name} подключился к лобби."
+            }), exclude_websocket=websocket)
 
         return True
 
@@ -322,14 +331,15 @@ class ConnectionManager:
                 del lobbies[lobby_id]
                 logger.info(f"Лобби {lobby_id} пусто и удалено.")
 
-    async def broadcast(self, lobby_id: str, message: str):
+    async def broadcast(self, lobby_id: str, message: str, exclude_websocket: Optional[WebSocket] = None):
         if lobby_id in self.active_connections:
             logger.info(f"Отправка сообщения в лобби {lobby_id}: {message}")
             for connection in self.active_connections[lobby_id]:
-                try:
-                    await connection.send_text(message)
-                except Exception as e:
-                    logger.error(f"Ошибка при отправке сообщения: {e}")
+                if connection != exclude_websocket:
+                    try:
+                        await connection.send_text(message)
+                    except Exception as e:
+                        logger.error(f"Ошибка при отправке сообщения: {e}")
 
 manager = ConnectionManager()
 
@@ -502,9 +512,6 @@ async def websocket_endpoint(
                         })
                     )
 
-
-
-
                 elif data.get("type") in ["move", "erase"]:
                     move_request = MoveRequest(**data)
                     current_board = lobbies[lobbyId]["board"]
@@ -647,7 +654,6 @@ def check_game_over(board: List[List[Union[int, Dict]]]) -> (bool, str):
     # Дополнительно можно проверить, является ли доска валидной
     # Здесь предполагается, что все ходы были валидны, поэтому доска корректна
     return True, "Игра окончена: пазл Sudoku решен!"
-
 
 def is_valid_move(board: List[List[Union[int, Dict]]], row: int, col: int, value: int) -> (bool, str):
     """

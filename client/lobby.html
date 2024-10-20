@@ -108,9 +108,20 @@
         }
 
         .player-blue {
-            background-color: rgba(0, 0, 255, 0.5);
+            background-color: rgba(25, 0, 255, 0.5);
             /* Синий */
             color: #fff;
+        }
+
+        /* Дополнительные цвета (при необходимости) */
+        .player-green {
+            background-color: rgba(0, 255, 0, 0.5);
+            color: #fff;
+        }
+
+        .player-yellow {
+            background-color: rgba(255, 255, 0, 0.5);
+            color: #000;
         }
 
         /* Стиль для кнопки стирания */
@@ -130,7 +141,6 @@
         }
 
         /* Стилизация чата */
-        /* Стилизация чата */
         #chat {
             flex: none;
             /* Отключаем растягивание чата */
@@ -146,7 +156,6 @@
             border-radius: 5px;
             margin-bottom: 10px;
         }
-
 
         .chat-message {
             margin-bottom: 5px;
@@ -278,6 +287,15 @@
         #players-list li,
         #scores-list li {
             margin-bottom: 5px;
+            display: flex;
+            align-items: center;
+        }
+
+        .player-color {
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            margin-right: 10px;
         }
 
         /* История игр */
@@ -360,6 +378,7 @@
             <div id="game-section" style="display: none;">
                 <h2>Лобби: <span id="current-lobby-id"></span></h2>
                 <div id="scores">
+                    <h3>Счётчики</h3>
                     <ul id="scores-list">
                         <!-- Счётчики будут обновляться здесь -->
                     </ul>
@@ -408,6 +427,9 @@
         let username = null; // Хранение реального имени пользователя
         let accessToken = localStorage.getItem('access_token'); // Получение токена из localStorage
 
+        // Словарь для сопоставления имен пользователей с CSS-классами
+        let playerClasses = {}; // Пример: { "player1": "player-red", "player2": "player-blue" }
+
         // Проверка наличия токена при загрузке страницы
         if (!accessToken) {
             // Если токен отсутствует, перенаправить на страницу входа
@@ -435,6 +457,7 @@
         const messageInput = document.getElementById('message-input');
         const sendButton = document.getElementById('send-button');
         const leaveButton = document.getElementById('leave-button');
+        const scoresList = document.getElementById('scores-list');
 
         // Функция для перенаправления на страницу входа
         function redirectToLogin() {
@@ -609,7 +632,9 @@
                 currentLobbyId = lobbyId;
                 currentLobbyIdSpan.textContent = lobbyId;
                 gameSection.style.display = 'block';
-                fetchBoard(lobbyId);
+
+                await fetchLobbyDetails(lobbyId); // Сначала получаем детали лобби и обновляем playerClasses
+                await fetchBoard(lobbyId); // Затем обновляем доску
 
             } catch (error) {
                 console.error('Ошибка при подключении к WebSocket:', error);
@@ -618,9 +643,9 @@
         }
 
         /**
- * Обрабатывает входящие сообщения от WebSocket.
- * @param {Object} data - Данные сообщения от сервера.
- */
+         * Обрабатывает входящие сообщения от WebSocket.
+         * @param {Object} data - Данные сообщения от сервера.
+         */
         function handleWebSocketMessage(data) {
             try {
                 switch (data.type) {
@@ -631,6 +656,13 @@
 
                     case "system":
                         // Системное сообщение
+                        if (data.player && data.color) {
+                            // Обновляем карту цветов игроков
+                            playerClasses[data.player] = `player-${data.color}`;
+                            // Обновляем отображение доски и счётов, чтобы применить новые классы
+                            updateBoardIfVisible();
+                            updateScoresIfVisible();
+                        }
                         addChatMessage('Система', data.message);
                         break;
 
@@ -675,13 +707,6 @@
             }
         }
 
-
-
-
-
-
-
-
         // Отправка Сообщений через WebSocket (чат)
         sendButton.addEventListener('click', () => {
             const message = messageInput.value.trim();
@@ -699,7 +724,6 @@
             }
         });
 
-
         // Покинание Лобби
         leaveButton.addEventListener('click', () => {
             if (websocket) {
@@ -714,8 +738,8 @@
             currentLobbyId = null;
             boardDiv.innerHTML = '';
             chatDiv.innerHTML = '';
-            const scoresList = document.getElementById('scores-list');
             scoresList.innerHTML = '';
+            playerClasses = {};
         }
 
         // Добавление Сообщений в Чат
@@ -735,10 +759,20 @@
 
         // Обновление очков
         function updateScores(scores) {
-            const scoresList = document.getElementById('scores-list');
             scoresList.innerHTML = ''; // Очистить список
             for (const [player, score] of Object.entries(scores)) {
                 const li = document.createElement('li');
+
+                // Создаем индикатор цвета
+                const colorIndicator = document.createElement('span');
+                colorIndicator.classList.add('player-color');
+                const playerClass = playerClasses[player];
+                if (playerClass) {
+                    colorIndicator.classList.add(playerClass);
+                }
+                li.appendChild(colorIndicator);
+
+                // Добавляем имя и счёт
                 li.textContent = `${player}: ${score}`;
                 scoresList.appendChild(li);
             }
@@ -765,6 +799,10 @@
                 const lobby = await response.json();
                 updateBoard(lobby.board);
                 updateScores(lobby.scores);
+                // Обновляем карту цветов игроков
+                lobby.players.forEach(player => {
+                    playerClasses[player.name] = `player-${player.color}`;
+                });
             } catch (error) {
                 console.error('Ошибка при получении доски:', error);
                 showNotification('Произошла ошибка при получении доски.', 'error');
@@ -773,6 +811,8 @@
 
         // Рендеринг Доски
         function updateBoard(board) {
+            console.log('Player Classes:', playerClasses);
+
             boardDiv.innerHTML = '';
             board.forEach((row, rowIndex) => {
                 row.forEach((cell, colIndex) => {
@@ -853,10 +893,7 @@
 
         // Получение класса игрока по имени
         function getPlayerClass(playerName) {
-            // Пример сопоставления имени игрока с классом цвета
-            if (playerName === 'player1') return 'player-red';
-            if (playerName === 'player2') return 'player-blue';
-            return null;
+            return playerClasses[playerName] || null;
         }
 
         // Функция для отправки хода
@@ -914,7 +951,6 @@
         }
 
         // Функция для отображения истории игр
-        // Функция для отображения истории игр
         function renderGameHistory(games) {
             gameHistoryList.innerHTML = '';
             if (games.length === 0) {
@@ -940,7 +976,6 @@
                 gameHistoryList.appendChild(li);
             });
         }
-
 
         // Функция для получения и отображения истории чата конкретной игры
         async function fetchGameChatHistory(gameId) {
@@ -997,29 +1032,47 @@
         fetchGameHistory();
 
         // Функция для обновления списка лобби
-        async function fetchLobbies() {
+        // (Удалено дублирование функции)
+
+        // Получение Деталей Лобби После Присоединения
+        async function fetchLobbyDetails(lobbyId) {
             try {
-                const response = await fetch(`${LOBBY_SERVICE_URL}/lobbies`, {
+                const response = await fetch(`${LOBBY_SERVICE_URL}/lobbies/${lobbyId}`, {
                     headers: {
                         'Authorization': `Bearer ${accessToken}`
                     }
                 });
-                if (response.status === 401) {
-                    showNotification('Сессия истекла. Пожалуйста, войдите снова.', 'error');
-                    redirectToLogin();
-                    return;
-                }
                 if (!response.ok) {
-                    const error = await response.json();
-                    console.error(`Ошибка при получении лобби: ${error.detail}`);
-                    showNotification(`Ошибка при получении лобби: ${error.detail}`, 'error');
+                    showNotification('Не удалось получить детали лобби.', 'error');
                     return;
                 }
-                const lobbies = await response.json();
-                renderLobbies(lobbies);
+                const lobbyDetails = await response.json();
+                lobbyDetails.players.forEach(player => {
+                    playerClasses[player.name] = `player-${player.color}`;
+                });
+                updateScores(lobbyDetails.scores);
+                // Обновляем отображение доски и счётов после обновления playerClasses
+                if (lobbyDetails.board) {
+                    updateBoard(lobbyDetails.board);
+                }
             } catch (error) {
-                console.error('Ошибка при получении лобби:', error);
-                showNotification('Произошла ошибка при получении лобби.', 'error');
+                console.error('Ошибка при получении деталей лобби:', error);
+                showNotification('Произошла ошибка при получении деталей лобби.', 'error');
+            }
+        }
+
+        // Вспомогательные функции для обновления доски и счётов, если они видимы
+        function updateBoardIfVisible() {
+            if (currentLobbyId && boardDiv.innerHTML !== '') {
+                // Можно повторно запросить доску или сохранить её состояние
+                fetchBoard(currentLobbyId);
+            }
+        }
+
+        function updateScoresIfVisible() {
+            if (currentLobbyId && scoresList.innerHTML !== '') {
+                // Можно повторно запросить счёты или сохранить их состояние
+                fetchBoard(currentLobbyId); // fetchBoard обновляет и счёты
             }
         }
     </script>
