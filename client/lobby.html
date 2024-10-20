@@ -266,6 +266,7 @@
             cursor: pointer;
         }
 
+
         /* Модальное окно для истории чата */
         #chat-history-modal {
             position: fixed;
@@ -326,26 +327,43 @@
             align-items: center;
         }
 
-        /* Сделать список счётов горизонтальным и увеличить жирность шрифта */
+
+        /* Стиль для контейнера со счетчиками */
+        #scores {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            margin: 20px 0;
+            text-align: center;
+        }
+
+        /* Отдельный стиль для заголовка, чтобы он оставался выше */
+        #scores h3 {
+            margin-bottom: 10px;
+            /* Отступ снизу для заголовка */
+        }
+
+        /* Центрируем список */
         #scores-list {
             display: flex;
             flex-direction: row;
-            justify-content: flex-start;
+            justify-content: center;
             align-items: center;
             padding: 0;
-            /* Убрать отступы списка */
             margin: 0;
-            /* Убрать внешние отступы списка */
         }
 
         #scores-list li {
-            margin-right: 20px;
-            /* Отступ между элементами списка */
+            margin: 0 15px;
+            /* Отступы между счётчиками */
             font-weight: bold;
-            /* Увеличенная жирность шрифта */
             display: flex;
             align-items: center;
+            justify-content: center;
         }
+
+
 
         /* Убедитесь, что цветовые индикаторы не влияют на выравнивание текста */
         .player-color {
@@ -440,9 +458,9 @@
             <div id="game-section" style="display: none;">
                 <h2>Лобби: <span id="current-lobby-id"></span></h2>
                 <div id="scores">
-                    <h3>Счётчики</h3>
+                    <h3>Счет:</h3>
                     <ul id="scores-list">
-                        <!-- Счётчики будут обновляться здесь -->
+                        
                     </ul>
                 </div>
                 <div id="board">
