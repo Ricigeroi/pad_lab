@@ -92,7 +92,7 @@ SECRET_KEY = "banana"  # Должен совпадать с SECRET_KEY в game-s
 ALGORITHM = "HS256"
 
 # Semaphore для ограничения количества одновременных задач
-MAX_CONCURRENT_TASKS = 20
+MAX_CONCURRENT_TASKS = 2
 semaphore = asyncio.Semaphore(MAX_CONCURRENT_TASKS)
 
 async def limit_concurrent_tasks():
@@ -143,7 +143,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-TIMEOUT_SECONDS = 5  # Установите желаемую длительность таймаута
+TIMEOUT_SECONDS = 15  # Установите желаемую длительность таймаута
 
 # Модели Pydantic
 class LobbyRequest(BaseModel):
@@ -389,7 +389,7 @@ def get_username_from_websocket(lobby_id: str, websocket: WebSocket) -> Optional
 @app.get("/lobby_service/hello", response_class=JSONResponse)
 async def hello_lobby_service(dependency: str = Depends(limit_concurrent_tasks), current_user: str = Depends(get_current_user)):
     """
-    Возвращает приветственное сообщение от lobby_service.
+    Возвращает приветственное сообщение от lobby_service с искусственной задержкой.
     """
     try:
         return await asyncio.wait_for(_hello_lobby_service(), timeout=TIMEOUT_SECONDS)
@@ -397,7 +397,11 @@ async def hello_lobby_service(dependency: str = Depends(limit_concurrent_tasks),
         raise HTTPException(status_code=408, detail="Request Timeout")
 
 async def _hello_lobby_service():
+    logger.info("Начало обработки запроса")
+    await asyncio.sleep(10)  # Задержка в 10 секунд
+    logger.info("Завершение обработки запроса")
     return {"message": "Hello from lobby_service"}
+
 
 @app.get("/lobby_service/data", response_class=JSONResponse)
 async def get_service2_data(dependency: str = Depends(limit_concurrent_tasks), current_user: str = Depends(get_current_user)):

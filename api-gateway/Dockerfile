@@ -1,30 +1,39 @@
-# Используем официальный образ .NET SDK для сборки
-FROM mcr.microsoft.com/dotnet/sdk:8.0@sha256:35792ea4ad1db051981f62b313f1be3b46b1f45cadbaa3c288cd0d3056eefb83 AS build
+# Stage 1: Build the application
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+
+# Set the working directory inside the container
 WORKDIR /src
 
-# Копируем файл решения (.sln) и файл проекта (.csproj)
-COPY ApiGateway.sln ./
+# Copy the solution and project files
 COPY ApiGateway/ApiGateway.csproj ApiGateway/
 
-# Восстанавливаем зависимости
-RUN dotnet restore
+# Установка переменной окружения для ASP.NET Core
+ENV ASPNETCORE_URLS=http://+:5029
 
-# Копируем остальные файлы проекта
+# Restore the dependencies
+RUN dotnet restore ApiGateway/ApiGateway.csproj
+
+# Copy the remaining source code
 COPY ApiGateway/ ApiGateway/
 
-# Устанавливаем рабочую директорию на проекте
+# Navigate to the project directory
 WORKDIR /src/ApiGateway
 
-# Публикуем приложение
+# Publish the application in Release mode
 RUN dotnet publish -c Release -o /app/publish
 
-# Используем официальный образ .NET Runtime для запуска
+# Stage 2: Create the runtime image
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
+
+# Set the working directory inside the container
 WORKDIR /app
+
+# Copy the published output from the build stage
 COPY --from=build /app/publish .
 
-# Открываем порт 5029 для доступа к приложению
+# Expose the actual port the app listens on
 EXPOSE 5029
 
-# Запускаем приложение
+
+# Entry point for the container
 ENTRYPOINT ["dotnet", "ApiGateway.dll"]

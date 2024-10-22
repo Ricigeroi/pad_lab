@@ -16,6 +16,7 @@ builder.Services.AddCors(options =>
                .AllowAnyHeader()
                .AllowCredentials();
     });
+    // options.ListenAnyIP(5029); // This line is incorrect and should be removed
 });
 
 // Add reverse proxy
@@ -29,17 +30,21 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+// Configure Kestrel to listen on any IP address and port 5029
+builder.WebHost.ConfigureKestrel(serverOptions =>
+{
+    serverOptions.ListenAnyIP(5029);
+});
+
 var app = builder.Build();
 
 // Use CORS policy
 app.UseCors("CorsPolicy");
 
-// Use Swagger
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+
+app.UseSwagger();
+app.UseSwaggerUI();
+
 
 // Use HTTPS redirection
 app.UseHttpsRedirection();
