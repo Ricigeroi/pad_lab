@@ -3,7 +3,7 @@ services:
     build:
       context: ./api-gateway
     ports:
-      - "5030:5029"
+      - "5029:5029"
     depends_on:
       - game_service
       - lobby_service

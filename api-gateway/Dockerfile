@@ -1,18 +1,16 @@
 # Используем официальный образ .NET SDK для сборки
-FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:8.0@sha256:35792ea4ad1db051981f62b313f1be3b46b1f45cadbaa3c288cd0d3056eefb83 AS build
 WORKDIR /src
 
-# Копируем файл решения (.sln)
+# Копируем файл решения (.sln) и файл проекта (.csproj)
 COPY ApiGateway.sln ./
-
-# Копируем файл проекта (.csproj)
-COPY ApiGateway/ApiGateway.csproj ApiGateway/ApiGateway.csproj
+COPY ApiGateway/ApiGateway.csproj ApiGateway/
 
 # Восстанавливаем зависимости
-RUN dotnet restore ApiGateway.sln
+RUN dotnet restore
 
 # Копируем остальные файлы проекта
-COPY . .
+COPY ApiGateway/ ApiGateway/
 
 # Устанавливаем рабочую директорию на проекте
 WORKDIR /src/ApiGateway
@@ -24,4 +22,9 @@ RUN dotnet publish -c Release -o /app/publish
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
 WORKDIR /app
 COPY --from=build /app/publish .
+
+# Открываем порт 5029 для доступа к приложению
+EXPOSE 5029
+
+# Запускаем приложение
 ENTRYPOINT ["dotnet", "ApiGateway.dll"]
