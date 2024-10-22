@@ -1,0 +1,81 @@
+services:
+  api_gateway:
+    build:
+      context: ./api-gateway
+    ports:
+      - "5030:5029"
+    depends_on:
+      - game_service
+      - lobby_service
+    environment:
+      - SERVICE1_URL=http://game_service:5001/
+      - SERVICE2_URL=http://lobby_service:5002/
+    networks:
+      - app-network
+
+  game_service:
+    build:
+      context: ./game-service
+    ports:
+      - "5001:5001"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:admin@db_game_service:5432/pad_users
+    depends_on:
+      - db_game_service
+    networks:
+      - app-network
+
+  lobby_service:
+    build:
+      context: ./lobby-service
+    ports:
+      - "5002:5002"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:admin@db_lobby_service:5432/pad_gameHistory
+      - REDIS_HOST=redis
+    depends_on:
+      - db_lobby_service
+      - redis
+    networks:
+      - app-network
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    networks:
+      - app-network
+
+  db_game_service:
+    image: postgres:14
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: pad_users
+    volumes:
+      - db_data_game_service:/var/lib/postgresql/data
+    expose:
+      - 5432
+    networks:
+      - app-network
+
+  db_lobby_service:
+    image: postgres:14
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: pad_gameHistory
+    volumes:
+      - db_data_lobby_service:/var/lib/postgresql/data
+    expose:
+      - 5432
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  db_data_game_service:
+  db_data_lobby_service:

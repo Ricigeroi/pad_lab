@@ -4,23 +4,25 @@ import json
 import logging
 import random
 import uuid
-from typing import List, Dict, Optional, Union
+from typing import List, Dict, Optional, Union, AsyncGenerator
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depends, Query, Header
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depends, Query, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
 
+import os
 from jose import JWTError, jwt
 from pydantic import BaseModel
 from sudoku import Sudoku
 
 # Импорты для работы с базой данных
-from databases import Database
 import sqlalchemy
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, ForeignKeyConstraint
-from sqlalchemy.sql import func
-from sqlalchemy.future import select  # Используем future.select для совместимости с SQLAlchemy 1.4+
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, ForeignKeyConstraint, MetaData
+from sqlalchemy.sql import func, select
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker
+
 from datetime import datetime
 from contextlib import asynccontextmanager
 
@@ -37,10 +39,13 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Конфигурация базы данных
-DATABASE_URL = "postgresql://postgres:admin@localhost:5432/pad_gameHistory"  # Замените на ваш фактический URL базы данных
+DATABASE_URL = os.environ.get("DATABASE_URL") or "postgresql+asyncpg://postgres:admin@localhost/pad_gameHistory"
 
-database = Database(DATABASE_URL)
-metadata = sqlalchemy.MetaData()
+# Конфигурация редиса
+REDIS_HOST = os.environ.get("REDIS_HOST") or "localhost"
+
+# Создаем метаданные
+metadata = MetaData()
 
 # Определение таблиц базы данных
 users_table = sqlalchemy.Table(
@@ -102,16 +107,22 @@ games: Dict[str, Dict] = {}
 async def lifespan(app: FastAPI):
     # Code executed before the application starts
     # Initialize Redis
-    app.state.redis = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+    app.state.redis = redis.Redis(host=REDIS_HOST, port=6379, db=0, decode_responses=True)
     logger.info("Redis подключен.")
 
-    # Connect to the database
-    await database.connect()
-    logger.info("База данных подключена.")
+    # Создаем асинхронный движок
+    engine = create_async_engine(DATABASE_URL, echo=True)
+    app.state.engine = engine
 
-    # For initial setup; in production, use migrations
-    engine = sqlalchemy.create_engine(DATABASE_URL)
-    metadata.create_all(engine)
+    # Создаем асинхронную сессию
+    async_session = sessionmaker(
+        engine, expire_on_commit=False, class_=AsyncSession
+    )
+    app.state.async_session = async_session
+
+    # Создаем таблицы
+    async with engine.begin() as conn:
+        await conn.run_sync(metadata.create_all)
     logger.info("Таблицы базы данных созданы.")
 
     yield  # Application is running
@@ -119,7 +130,7 @@ async def lifespan(app: FastAPI):
     # Code executed after the application shuts down
     await app.state.redis.close()
     logger.info("Redis отключен.")
-    await database.disconnect()
+    await engine.dispose()
     logger.info("База данных отключена.")
 
 app = FastAPI(lifespan=lifespan)
@@ -195,8 +206,17 @@ def verify_token(token: str) -> Optional[str]:
     except JWTError:
         return None
 
+# Зависимость для получения сессии базы данных
+async def get_db_session(request: Request) -> AsyncGenerator[AsyncSession, None]:
+    async_session = request.app.state.async_session
+    async with async_session() as session:
+        yield session
+
 # Зависимость для получения текущего пользователя
-async def get_current_user(authorization: str = Header(...)) -> str:
+async def get_current_user(
+    authorization: str = Header(...),
+    session: AsyncSession = Depends(get_db_session)
+) -> str:
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Invalid authorization header")
     token = authorization.split(" ")[1]
@@ -206,11 +226,12 @@ async def get_current_user(authorization: str = Header(...)) -> str:
 
     # Проверяем, существует ли пользователь в базе данных
     query = select(users_table).where(users_table.c.username == username)
-    user = await database.fetch_one(query)
+    result = await session.execute(query)
+    user = result.one_or_none()
     if user is None:
         # Вставляем нового пользователя
-        query = users_table.insert().values(username=username)
-        await database.execute(query)
+        await session.execute(users_table.insert().values(username=username))
+        await session.commit()
         logger.info(f"Новый пользователь добавлен: {username}")
     return username
 
@@ -223,6 +244,15 @@ class ConnectionManager:
     async def connect(self, lobby_id: str, websocket: WebSocket, username: str) -> bool:
         await websocket.accept()
         logger.info(f"Попытка подключения пользователя {username} к лобби {lobby_id}")
+
+        if lobby_id not in lobbies:
+            await websocket.send_text(json.dumps({"type": "error","error": "Lobby not found"}))
+            await websocket.close(code=1008)
+            logger.warning(f"Лобби {lobby_id} не найдено. Соединение отклонено для пользователя {username}.")
+            return False
+
+        logger.debug(f"Лобби {lobby_id} найдено. Текущее количество игроков: {len(self.active_connections.get(lobby_id, []))}")
+
 
         # Проверяем, существует ли лобби
         if lobby_id not in lobbies:
@@ -261,25 +291,31 @@ class ConnectionManager:
         logger.info(f"{player.name} подключён к лобби {lobby_id} с цветом {player.color}")
 
         # Добавляем игрока в игру в базе данных
-        # Получаем игру из базы данных
-        query = select(games_table).where(games_table.c.lobby_id == lobby_id)
-        game = await database.fetch_one(query)
-        if game:
-            # Получаем user ID
-            query = select(users_table).where(users_table.c.username == username)
-            user = await database.fetch_one(query)
-            if user:
-                # Проверяем, есть ли игрок уже в игре
-                query = select(game_players_table).where(
-                    (game_players_table.c.game_id == game['id']) &
-                    (game_players_table.c.player_id == user['id'])
-                )
-                existing_player = await database.fetch_one(query)
-                if existing_player is None:
-                    # Вставляем в game_players_table
-                    query = game_players_table.insert().values(game_id=game['id'], player_id=user['id'])
-                    await database.execute(query)
-                    logger.info(f"Пользователь {username} добавлен в игру {game['id']}.")
+        # Получаем сессию
+        async_session = websocket.scope["app"].state.async_session
+        async with async_session() as session:
+            # Получаем игру из базы данных
+            query = select(games_table).where(games_table.c.lobby_id == lobby_id)
+            result = await session.execute(query)
+            game = result.one_or_none()
+            if game:
+                # Получаем user ID
+                query = select(users_table).where(users_table.c.username == username)
+                result = await session.execute(query)
+                user = result.one_or_none()
+                if user:
+                    # Проверяем, есть ли игрок уже в игре
+                    query = select(game_players_table).where(
+                        (game_players_table.c.game_id == game.id) &
+                        (game_players_table.c.player_id == user.id)
+                    )
+                    result = await session.execute(query)
+                    existing_player = result.one_or_none()
+                    if existing_player is None:
+                        # Вставляем в game_players_table
+                        await session.execute(game_players_table.insert().values(game_id=game.id, player_id=user.id))
+                        await session.commit()
+                        logger.info(f"Пользователь {username} добавлен в игру {game.id}.")
 
         # Отправляем сообщение о подключении с реальным именем пользователя и его цветом
         await websocket.send_text(json.dumps({
@@ -381,7 +417,11 @@ async def _get_service2_data():
     return data
 
 @app.post("/lobbies", response_model=LobbyResponse)
-async def create_lobby(request: LobbyRequest, username: str = Depends(get_current_user)):
+async def create_lobby(
+    request: LobbyRequest,
+    username: str = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session)
+):
     """
     Создает новое лобби и генерирует доску Sudoku.
     """
@@ -401,7 +441,9 @@ async def create_lobby(request: LobbyRequest, username: str = Depends(get_curren
         game_id=request.gameId,
         start_time=datetime.utcnow(),
     )
-    game_id = await database.execute(query)
+    result = await session.execute(query)
+    await session.commit()
+    game_id = result.inserted_primary_key[0]
     logger.info(f"Игра {game_id} добавлена в базу данных с lobby_id {lobby_id}.")
 
     # Сохраняем game_id в памяти для использования в WebSocket
@@ -472,6 +514,9 @@ async def websocket_endpoint(
         logger.info(f"Connection to lobby {lobbyId} failed (lobby is full or not found)")
         return
 
+    # Получаем Redis клиент
+    redis_client = websocket.scope["app"].state.redis
+
     try:
         while True:
             data = await websocket.receive_text()
@@ -480,27 +525,29 @@ async def websocket_endpoint(
             # Process the received message
             try:
                 data = json.loads(data)
-                redis_client = app.state.redis  # Get the Redis client
 
                 if data.get("type") == "chat":
                     # Handle chat messages
-                    query = select(games_table).where(games_table.c.lobby_id == lobbyId)
-                    game = await database.fetch_one(query)
-                    if game:
-                        # Insert chat message into the database
-                        query = chat_messages_table.insert().values(
-                            game_id=game['id'],
-                            sender=data['player'],
-                            message=data['message'],
-                            timestamp=datetime.utcnow()
-                        )
-                        await database.execute(query)
-                        logger.info(f"Сообщение от {data['player']} в игре {game['id']}: {data['message']}")
+                    async_session = websocket.scope["app"].state.async_session
+                    async with async_session() as session:
+                        query = select(games_table).where(games_table.c.lobby_id == lobbyId)
+                        result = await session.execute(query)
+                        game = result.one_or_none()
+                        if game:
+                            # Insert chat message into the database
+                            await session.execute(chat_messages_table.insert().values(
+                                game_id=game.id,
+                                sender=data['player'],
+                                message=data['message'],
+                                timestamp=datetime.utcnow()
+                            ))
+                            await session.commit()
+                            logger.info(f"Сообщение от {data['player']} в игре {game.id}: {data['message']}")
 
-                        # Invalidate chat history cache
-                        cache_key = f"game:{game['id']}:chat_history"
-                        await redis_client.delete(cache_key)
-                        logger.debug(f"Кэш истории чата {cache_key} очищен.")
+                            # Invalidate chat history cache
+                            cache_key = f"game:{game.id}:chat_history"
+                            await redis_client.delete(cache_key)
+                            logger.debug(f"Кэш истории чата {cache_key} очищен.")
 
                     # Broadcast the chat message to all participants with separate player and message fields
                     await manager.broadcast(
@@ -553,22 +600,24 @@ async def websocket_endpoint(
                                 winner = max(scores, key=scores.get) if scores else None
 
                                 # Обновляем end_time и winner в базе данных
-                                query = games_table.update().where(
-                                    games_table.c.lobby_id == lobbyId
-                                ).values(
-                                    end_time=datetime.utcnow(),
-                                    winner=winner
-                                )
-                                await database.execute(query)
-                                logger.info(f"Игра в лобби {lobbyId} завершена. Победитель: {winner}")
+                                async_session = websocket.scope["app"].state.async_session
+                                async with async_session() as session:
+                                    query = games_table.update().where(
+                                        games_table.c.lobby_id == lobbyId
+                                    ).values(
+                                        end_time=datetime.utcnow(),
+                                        winner=winner
+                                    )
+                                    await session.execute(query)
+                                    await session.commit()
+                                    logger.info(f"Игра в лобби {lobbyId} завершена. Победитель: {winner}")
 
-                                # Invalidate game history cache for all players
-                                redis_client = app.state.redis
-                                for player in lobbies[lobbyId]["players"]:
-                                    player_username = player.name
-                                    cache_key = f"user:{player_username}:games"
-                                    await redis_client.delete(cache_key)
-                                    logger.debug(f"Кэш истории игр {cache_key} очищен.")
+                                    # Invalidate game history cache for all players
+                                    for player in lobbies[lobbyId]["players"]:
+                                        player_username = player.name
+                                        cache_key = f"user:{player_username}:games"
+                                        await redis_client.delete(cache_key)
+                                        logger.debug(f"Кэш истории игр {cache_key} очищен.")
 
                                 # Broadcast game over message
                                 await manager.broadcast(
@@ -729,16 +778,21 @@ def update_board(board: List[List[Union[int, Dict]]]) -> List[List[Union[int, di
 
 # Endpoint для получения истории игр пользователя
 @app.get("/users/{username}/games", response_model=List[GameResultResponse])
-async def get_user_games(username: str, current_user: str = Depends(get_current_user)):
+async def get_user_games(
+    username: str,
+    request: Request,
+    current_user: str = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+      # Добавляем Request
+):
     if username != current_user:
         raise HTTPException(status_code=403, detail="Not authorized to view other user's game history")
 
-    redis_client = app.state.redis
+    redis_client = request.app.state.redis  # Исправляем получение Redis клиента
     cache_key = f"user:{username}:games"
 
     # Try to get data from cache
     cached_data = await redis_client.get(cache_key)
-    print(cached_data)
     if cached_data:
         games_list = json.loads(cached_data)
         logger.info(f"Данные игр пользователя {username} получены из кэша.")
@@ -746,15 +800,17 @@ async def get_user_games(username: str, current_user: str = Depends(get_current_
 
     # Fetch from database
     query = select(users_table).where(users_table.c.username == username)
-    user = await database.fetch_one(query)
+    result = await session.execute(query)
+    user = result.one_or_none()
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
 
     query = select(games_table).join(
         game_players_table, games_table.c.id == game_players_table.c.game_id
-    ).where(game_players_table.c.player_id == user['id'])
-    games_list = await database.fetch_all(query)
-    games_data = [GameResultResponse(**dict(game)) for game in games_list]
+    ).where(game_players_table.c.player_id == user.id)
+    result = await session.execute(query)
+    games_list = result.fetchall()
+    games_data = [GameResultResponse(**dict(game._mapping)) for game in games_list]
 
     # Use jsonable_encoder to handle datetime serialization
     games_data_jsonable = jsonable_encoder(games_data)
@@ -767,29 +823,37 @@ async def get_user_games(username: str, current_user: str = Depends(get_current_
 
 # Endpoint для получения истории чата конкретной игры
 @app.get("/games/{game_id}/chat_history", response_model=List[ChatMessageResponse])
-async def get_game_chat_history(game_id: int, current_user: str = Depends(get_current_user)):
+async def get_game_chat_history(
+    game_id: int,
+    request: Request,
+    current_user: str = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+):
     # Проверяем, что пользователь участвовал в этой игре
     query = select(games_table).where(games_table.c.id == game_id)
-    game = await database.fetch_one(query)
+    result = await session.execute(query)
+    game = result.one_or_none()
     if game is None:
         raise HTTPException(status_code=404, detail="Game not found")
 
     # Получаем user ID
     query = select(users_table).where(users_table.c.username == current_user)
-    user = await database.fetch_one(query)
+    result = await session.execute(query)
+    user = result.one_or_none()
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
 
     # Проверяем, участвует ли пользователь в этой игре
     query = select(game_players_table).where(
-        (game_players_table.c.game_id == game['id']) &
-        (game_players_table.c.player_id == user['id'])
+        (game_players_table.c.game_id == game.id) &
+        (game_players_table.c.player_id == user.id)
     )
-    participation = await database.fetch_one(query)
+    result = await session.execute(query)
+    participation = result.one_or_none()
     if participation is None:
         raise HTTPException(status_code=403, detail="Not authorized to view this game's chat history")
 
-    redis_client = app.state.redis
+    redis_client = request.app.state.redis  # Исправляем получение Redis клиента
     cache_key = f"game:{game_id}:chat_history"
 
     # Try to get data from cache
@@ -801,8 +865,9 @@ async def get_game_chat_history(game_id: int, current_user: str = Depends(get_cu
 
     # Fetch from database
     query = select(chat_messages_table).where(chat_messages_table.c.game_id == game_id).order_by(chat_messages_table.c.timestamp)
-    messages = await database.fetch_all(query)
-    messages_data = [ChatMessageResponse(**dict(message)) for message in messages]
+    result = await session.execute(query)
+    messages = result.fetchall()
+    messages_data = [ChatMessageResponse(**dict(message._mapping)) for message in messages]
 
     # Use jsonable_encoder to handle datetime serialization
     messages_data_jsonable = jsonable_encoder(messages_data)
