@@ -1,10 +1,12 @@
 # Online Sudoku Platform
 
 ## Project Description
-An online Sudoku platform where users can play Sudoku games, track their progress, and participate in lobbies for game sessions. The platform utilizes a robust microservice architecture, ensuring scalability, high availability, and separation of concerns. The architecture incorporates advanced features such as circuit breakers, distributed caching with consistent hashing, logging and monitoring with the ELK stack, and data warehousing for analytics. The two main microservices focus on user/game management and game lobby management through WebSocket communication.
+The **Online Sudoku Platform** is a comprehensive web application that allows users to play Sudoku games, track their progress, and participate in game lobbies for multiplayer sessions. The platform is built using a robust **microservices architecture**, ensuring scalability, high availability, and separation of concerns. Key features include real-time communication via WebSockets, advanced logging and monitoring, resilient transaction management, distributed caching, database replication, and a data warehouse for analytics.
 
 ## Table of Contents
 1. [Application Suitability](#application-suitability)
+   - [Relevance of Microservices Architecture](#relevance-of-microservices-architecture)
+   - [Real-World Examples](#real-world-examples)
 2. [System Architecture](#system-architecture)
    - [Architecture Diagram](#architecture-diagram)
    - [Updated Features](#updated-features)
@@ -17,6 +19,7 @@ An online Sudoku platform where users can play Sudoku games, track their progres
    - [API Gateway](#api-gateway)
    - [Logging and Monitoring Service](#logging-and-monitoring-service)
    - [Data Warehouse Service](#data-warehouse-service)
+   - [Saga Coordinator Service](#saga-coordinator-service)
 5. [Data Management Design](#data-management-design)
    - [Databases](#databases)
    - [Caching](#caching)
@@ -41,21 +44,24 @@ An online Sudoku platform where users can play Sudoku games, track their progres
    - [Long-Running Saga Transactions](#long-running-saga-transactions)
    - [Database Replication and Failover](#database-replication-and-failover)
 10. [Requirements Fulfillment](#requirements-fulfillment)
+11. [Conclusion](#conclusion)
 
 ---
 
 ## Application Suitability
 
 ### Relevance of Microservices Architecture
-The microservices architecture is ideal for the Online Sudoku Platform due to:
+The **microservices architecture** is ideal for the Online Sudoku Platform due to:
 
-1. **Scalability**: Handles numerous concurrent users engaging in various activities. Microservices allow independent scaling of different components like game management and lobby services.
+1. **Scalability**: The platform accommodates numerous concurrent users engaging in activities such as playing games, joining lobbies, and tracking progress. Microservices enable independent scaling of different components like game management and lobby services.
 
-2. **Independence**: Separation of concerns enables independent development, deployment, and scaling of services, reducing complexity and enhancing resource allocation.
+2. **Independence**: Separation of concerns allows independent development, deployment, and scaling of services, reducing complexity and enhancing resource allocation.
 
 3. **Real-time Capabilities**: Facilitates efficient real-time communication through WebSockets, allowing independent development of real-time functionalities without impacting core game logic.
 
 4. **Resilience and Fault Tolerance**: Advanced features like circuit breakers and database replication ensure the system remains resilient against failures.
+
+5. **Maintainability**: Smaller, focused services are easier to maintain, update, and deploy, promoting continuous integration and delivery.
 
 ### Real-World Examples
 1. **Chess.com**: Utilizes a similar architecture to manage multiplayer lobbies, real-time gameplay, and user management, ensuring independent scaling and development.
@@ -69,7 +75,7 @@ The microservices architecture is ideal for the Online Sudoku Platform due to:
 ### Architecture Diagram
 ![Architecture Diagram](pad_architect.png)
 
-*The updated architecture diagram includes new services and features such as the API Gateway with circuit breakers, ELK stack for logging, Prometheus & Grafana for monitoring, a Data Warehouse with ETL processes, and database replication setups.*
+*The updated architecture diagram includes new services and features such as the API Gateway with circuit breakers, ELK stack for logging, Prometheus & Grafana for monitoring, a Data Warehouse with ETL processes, database replication setups, and a Saga Coordinator for transaction management.*
 
 ### Updated Features
 - **Circuit Breaker**: Prevents cascading failures by halting calls to failing services after multiple re-routes.
@@ -100,56 +106,52 @@ The microservices architecture is ideal for the Online Sudoku Platform due to:
   - **Communication**: Routes RESTful requests from the client to the appropriate microservice, handles load balancing, and implements circuit breakers.
 
 ### New Features Implemented
-
-- **Circuit Breaker**: Implemented within the API Gateway using the Polly library to manage retry policies and prevent cascading failures.
-
+- **Circuit Breaker**: Implemented within the API Gateway using the **Polly** library to manage retry policies and prevent cascading failures.
 - **High Availability**: Achieved by deploying multiple instances of each microservice behind a load balancer to ensure service availability.
-
 - **Logging and Monitoring**:
   - **ELK Stack**: Centralized logging using Elasticsearch, Logstash, and Kibana.
   - **Prometheus & Grafana**: Real-time monitoring and visualization of system metrics.
-
 - **Distributed Caching with Consistent Hashing**: Utilizes Redis Cluster with consistent hashing to distribute cache across multiple nodes, ensuring scalability and reliability.
-
-- **Saga Transactions**: Implemented long-running transactions using a coordinator service to manage state and ensure consistency across microservices without two-phase commits.
-
-- **Database Replication and Failover**: PostgreSQL is set up with replication across three replicas, ensuring data redundancy and automatic failover.
-
-- **Data Warehouse**: A separate service using Apache Airflow for ETL processes to periodically extract, transform, and load data from operational databases into a centralized data warehouse (e.g., Amazon Redshift or Google BigQuery) for analytics.
+- **Saga Transactions**: Implemented long-running transactions using a **Saga Coordinator Service** to manage state and ensure consistency across microservices without two-phase commits.
+- **Database Replication and Failover**: PostgreSQL is set up with replication across three replicas using **Patroni**, ensuring data redundancy and automatic failover.
+- **Data Warehouse**: A separate service using **Apache Airflow** for ETL processes to periodically extract, transform, and load data from operational databases into a centralized data warehouse (e.g., Amazon Redshift or Google BigQuery) for analytics.
 
 ---
 
 ## Service Boundaries
 
 ### Game Service
-Handles user registration, authentication, game management, Sudoku logic (validating inputs, game state management, score tracking), and interactions with external services.
+Handles user registration, authentication, game management, Sudoku logic (validating inputs, game state management, score tracking), and interactions with external services. It exposes RESTful endpoints for client interactions and utilizes gRPC for communication with the Lobby Service.
 
 ### Lobby Service
 Manages game sessions, allowing users to join lobbies, receive updates, and interact with other players using WebSocket communication. It handles real-time game state synchronization and chat functionalities.
 
 ### API Gateway
-Acts as the central entry point for all client requests. It routes requests to appropriate microservices, implements load balancing, and integrates circuit breakers to enhance system resilience.
+Acts as the central entry point for all client requests. It routes requests to appropriate microservices, implements load balancing, and integrates circuit breakers to enhance system resilience. The API Gateway ensures secure and efficient communication between clients and backend services.
 
 ### Logging and Monitoring Service
-Aggregates logs from all microservices using the ELK stack and provides real-time monitoring dashboards and alerting through Prometheus and Grafana.
+Aggregates logs from all microservices using the **ELK stack** and provides real-time monitoring dashboards and alerting through **Prometheus** and **Grafana**. This service ensures that all system activities are logged and monitored for performance and troubleshooting.
 
 ### Data Warehouse Service
-Periodically extracts data from all operational databases, transforms it as needed, and loads it into a centralized data warehouse for comprehensive analytics and reporting.
+Periodically extracts data from all operational databases, transforms it as needed, and loads it into a centralized data warehouse for comprehensive analytics and reporting. Managed by **Apache Airflow**, it supports business intelligence and data-driven decision-making.
+
+### Saga Coordinator Service
+Manages long-running transactions across multiple microservices, ensuring data consistency and reliability without the complexity of traditional two-phase commits. It coordinates the sequence of operations and handles compensation in case of failures.
 
 ---
 
 ## Data Management Design
 
 ### Databases
-- **Game Service**: Uses PostgreSQL for storing user data, game states, and scores. Configured with replication across three replicas for high availability and failover.
-
-- **Lobby Service**: Utilizes Redis for lightweight, real-time session management and distributed caching with consistent hashing.
+- **Game Service**: Uses **PostgreSQL** for storing user data, game states, and scores. Configured with replication across three replicas using **Patroni** for high availability and failover.
+  
+- **Lobby Service**: Utilizes **Redis Cluster** for lightweight, real-time session management and distributed caching with consistent hashing.
 
 ### Caching
-Implemented using Redis Cluster with consistent hashing to distribute cache data evenly across multiple nodes. This setup ensures cache high availability and scalability, reducing latency for frequently accessed data.
+Implemented using **Redis Cluster** with consistent hashing to distribute cache data evenly across multiple nodes. This setup ensures cache high availability and scalability, reducing latency for frequently accessed data.
 
 ### Data Warehouse
-A separate data warehouse (e.g., Amazon Redshift) aggregates data from PostgreSQL and Redis. ETL processes managed by Apache Airflow extract data, perform necessary transformations, and load it into the data warehouse on a scheduled basis.
+A separate data warehouse (e.g., **Amazon Redshift**) aggregates data from PostgreSQL and Redis. **Apache Airflow** manages ETL processes that extract data, perform necessary transformations, and load it into the data warehouse on a scheduled basis.
 
 ---
 
@@ -224,7 +226,7 @@ A separate data warehouse (e.g., Amazon Redshift) aggregates data from PostgreSQ
     "message": "Hello from game_service"
   }
   ```
-  
+
 #### 5. **Get Combined Data**
 - **URL:** `/game_service/combined`
 - **Method:** `GET`
@@ -394,10 +396,10 @@ A separate data warehouse (e.g., Amazon Redshift) aggregates data from PostgreSQ
 
 ### New Endpoints
 
-#### 9. **Create Multi-Service Transaction**
-- **URL:** `/transactions/create_game`
+#### 9. **Create Multi-Service Transaction (Two-Phase Commit)**
+- **URL:** `/transactions/create_game_2pc`
 - **Method:** `POST`
-- **Description:** Creates a new game across multiple services using a saga transaction to ensure consistency.
+- **Description:** Creates a new game across multiple services using a two-phase commit to ensure atomicity and consistency.
 - **Request Body:**
   ```json
   {
@@ -409,21 +411,45 @@ A separate data warehouse (e.g., Amazon Redshift) aggregates data from PostgreSQ
   ```json
   {
     "transactionId": "string",
-    "status": "pending"
+    "status": "committed" // or "rolled_back"
   }
   ```
 - **Errors:** 
   - `400 Bad Request` if input data is invalid.
   - `500 Internal Server Error` if the transaction fails.
+  
+*Note: This endpoint manages transactions that span multiple microservices, ensuring atomicity and consistency using two-phase commits.*
 
-*Note: This endpoint manages transactions that span multiple microservices, ensuring atomicity and consistency using saga patterns.*
+#### 10. **Create Multi-Service Transaction (Saga Pattern)**
+- **URL:** `/transactions/create_game_saga`
+- **Method:** `POST`
+- **Description:** Creates a new game across multiple services using a saga transaction to ensure consistency without two-phase commits.
+- **Request Body:**
+  ```json
+  {
+    "username": "string",
+    "gameId": "string"
+  }
+  ```
+- **Response:**
+  ```json
+  {
+    "sagaId": "string",
+    "status": "pending" // or "completed", "failed"
+  }
+  ```
+- **Errors:** 
+  - `400 Bad Request` if input data is invalid.
+  - `500 Internal Server Error` if the saga fails.
+  
+*Note: This endpoint manages transactions that span multiple microservices, ensuring consistency using the saga pattern.*
 
 ---
 
 ## Deployment and Scaling
 
 ### Dockerization
-All microservices, including the API Gateway, Game Service, Lobby Service, Logging and Monitoring Services, and Data Warehouse Service, are containerized using Docker. Each service has its own Dockerfile specifying the environment and dependencies.
+All microservices, including the API Gateway, Game Service, Lobby Service, Logging and Monitoring Services, Data Warehouse Service, and Saga Coordinator Service, are containerized using **Docker**. Each service has its own `Dockerfile` specifying the environment and dependencies.
 
 ### Docker Compose
 A `docker-compose.yml` file orchestrates multiple containers, including:
@@ -431,11 +457,13 @@ A `docker-compose.yml` file orchestrates multiple containers, including:
 - **API Gateway**
 - **Game Service**
 - **Lobby Service**
+- **Saga Coordinator Service**
 - **Redis Cluster** (for caching)
 - **PostgreSQL Cluster** (with replication)
 - **ELK Stack**
 - **Prometheus & Grafana**
 - **Data Warehouse Service**
+- **Apache Airflow** (for ETL processes)
 
 ```yaml
 version: '3.8'
@@ -448,6 +476,7 @@ services:
     depends_on:
       - game-service
       - lobby-service
+      - saga-coordinator
     networks:
       - sudoku-network
 
@@ -459,6 +488,10 @@ services:
       - postgres1
     networks:
       - sudoku-network
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: on-failure
 
   lobby-service:
     build: ./lobby_service
@@ -470,6 +503,24 @@ services:
       - postgres1
     networks:
       - sudoku-network
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+
+  saga-coordinator:
+    build: ./saga_coordinator
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:admin@postgres1/pad_gameHistory
+    depends_on:
+      - game-service
+      - lobby-service
+    networks:
+      - sudoku-network
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: on-failure
 
   redis1:
     image: redis:6.2
@@ -477,6 +528,10 @@ services:
       - "6379:6379"
     networks:
       - sudoku-network
+    deploy:
+      replicas: 3
+      restart_policy:
+        condition: on-failure
 
   postgres1:
     image: postgres:13
@@ -492,6 +547,8 @@ services:
       replicas: 3
       restart_policy:
         condition: on-failure
+      placement:
+        constraints: [node.role == manager]
 
   elk:
     image: sebp/elk
@@ -501,6 +558,10 @@ services:
       - "5044:5044" # Logstash
     networks:
       - sudoku-network
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
 
   prometheus:
     image: prom/prometheus
@@ -510,6 +571,10 @@ services:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
     networks:
       - sudoku-network
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
 
   grafana:
     image: grafana/grafana
@@ -517,6 +582,10 @@ services:
       - "3000:3000"
     networks:
       - sudoku-network
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
 
   data-warehouse:
     build: ./data_warehouse
@@ -526,6 +595,26 @@ services:
       - postgres1
     networks:
       - sudoku-network
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  apache-airflow:
+    image: puckel/docker-airflow
+    environment:
+      - LOAD_EX=n
+      - EXECUTOR=Local
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./dags:/usr/local/airflow/dags
+    networks:
+      - sudoku-network
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
 
 networks:
   sudoku-network:
@@ -533,18 +622,21 @@ networks:
 ```
 
 ### Service High Availability
-High availability is achieved by deploying multiple instances of each microservice behind a load balancer. The Docker Compose setup specifies replicas for critical services like PostgreSQL to ensure redundancy and automatic failover.
+High availability is achieved by deploying multiple instances of each microservice behind a load balancer. The Docker Compose setup specifies replicas for critical services like PostgreSQL and Redis to ensure redundancy and automatic failover. For example, PostgreSQL is deployed with three replicas using **Patroni** to manage leader election and failover.
 
 ### Load Balancer
-The API Gateway acts as a load balancer, distributing incoming requests evenly across multiple instances of each microservice. It also integrates circuit breakers to manage retries and prevent overloading failing services.
+The **API Gateway** acts as a load balancer, distributing incoming requests evenly across multiple instances of each microservice. It also integrates circuit breakers to manage retries and prevent overloading failing services. The API Gateway ensures that traffic is efficiently managed and that services remain responsive under high load.
 
 ### Circuit Breaker
-Implemented within the API Gateway using the Polly library, the circuit breaker monitors the health of service endpoints. After multiple failed attempts to reach a service, the circuit breaker trips, halting further attempts for a specified period to allow the service to recover.
+Implemented within the **API Gateway** using the **Polly** library, the circuit breaker monitors the health of service endpoints. After multiple failed attempts to reach a service, the circuit breaker trips, halting further attempts for a specified period to allow the service to recover. This mechanism prevents cascading failures and enhances system resilience.
 
 ### Logging and Monitoring
-- **ELK Stack**: Centralizes logs from all microservices. Logstash collects and processes logs, Elasticsearch indexes them, and Kibana provides a user-friendly interface for log analysis.
-  
-- **Prometheus & Grafana**: Prometheus scrapes metrics from all services, and Grafana visualizes these metrics in real-time dashboards. Alerts can be configured in Prometheus to notify of any anomalies or issues.
+- **ELK Stack**: Centralizes logs from all microservices. **Logstash** collects and processes logs, **Elasticsearch** indexes them, and **Kibana** provides a user-friendly interface for log analysis.
+
+- **Prometheus & Grafana**: **Prometheus** scrapes metrics from all services, and **Grafana** visualizes these metrics in real-time dashboards. Alerts can be configured in Prometheus to notify of any anomalies or issues.
+
+### Data Warehouse
+A separate **Data Warehouse Service** uses **Apache Airflow** to schedule and manage ETL (Extract, Transform, Load) processes. Data from PostgreSQL and Redis is periodically extracted, transformed to meet analytical requirements, and loaded into a centralized data warehouse (e.g., **Amazon Redshift** or **Google BigQuery**) for comprehensive analytics and reporting.
 
 ---
 
@@ -575,101 +667,130 @@ Implemented within the API Gateway using the Polly library, the circuit breaker 
    - **Grafana**: `http://localhost:3000`
    - **PostgreSQL**: `localhost:5432`
    - **Redis**: `localhost:6379`
+   - **Apache Airflow**: `http://localhost:8080`
 
 4. **Initial Setup**
    - **Kibana**: Configure index patterns to start viewing logs.
    - **Grafana**: Add Prometheus as a data source and import dashboards for monitoring.
+   - **Apache Airflow**: Access the Airflow web interface to manage ETL workflows.
 
-### Deployment Instructions
+### Testing Instructions
 
-For production deployment, consider using Kubernetes for orchestration, enabling better scaling, self-healing, and management of services. Utilize managed services for databases and caching where possible to enhance reliability and reduce operational overhead.
-
----
-
-## API Documentation
-
-### Accessing the API
-
-All API requests should be routed through the **API Gateway** at `http://localhost:5029`. The gateway handles routing, load balancing, and applies security measures such as authentication and circuit breaking.
-
-### Authentication Flow
-
-1. **Register User**
-   - **Endpoint:** `/game_service/register`
+1. **Register a New User**
+   - **Endpoint:** `http://localhost:5029/game_service/register`
    - **Method:** `POST`
    - **Body:**
      ```json
      {
-       "username": "string",
-       "email": "string (optional)",
-       "full_name": "string (optional)",
-       "password": "string"
+       "username": "testuser",
+       "email": "testuser@example.com",
+       "full_name": "Test User",
+       "password": "securepassword"
      }
      ```
-   - **Response:** User details with a status of successful registration.
 
 2. **Login**
-   - **Endpoint:** `/game_service/login`
+   - **Endpoint:** `http://localhost:5029/game_service/login`
    - **Method:** `POST`
    - **Body:** Form data with `username` and `password`.
    - **Response:** JWT token to be used in the `Authorization` header for authenticated requests.
-     ```json
-     {
-       "access_token": "string",
-       "token_type": "bearer"
-     }
-     ```
 
-3. **Authenticated Requests**
-   - Include the JWT token in the `Authorization` header:
+3. **Access Protected Endpoints**
+   - Use the JWT token obtained from the login response in the `Authorization` header:
      ```
      Authorization: Bearer <token>
      ```
 
-### Available Endpoints
+4. **Create a Lobby**
+   - **Endpoint:** `http://localhost:5029/lobbies`
+   - **Method:** `POST`
+   - **Body:**
+     ```json
+     {
+       "gameId": "sudoku123"
+     }
+     ```
+   - **Response:** Lobby ID and creation message.
 
-Refer to the [API Documentation](#api-documentation) section above for detailed information on each endpoint, including request and response formats.
+5. **Connect via WebSocket**
+   - **URL:** `ws://localhost:5029/ws/lobby/{lobbyId}?token=<JWT_TOKEN>`
+   - Use a WebSocket client to connect to the lobby.
+
+6. **Create a Game Transaction**
+   - **Two-Phase Commit:**
+     - **Endpoint:** `http://localhost:5029/transactions/create_game_2pc`
+     - **Method:** `POST`
+     - **Body:**
+       ```json
+       {
+         "username": "testuser",
+         "gameId": "sudoku123"
+       }
+       ```
+   - **Saga Transaction:**
+     - **Endpoint:** `http://localhost:5029/transactions/create_game_saga`
+     - **Method:** `POST`
+     - **Body:**
+       ```json
+       {
+         "username": "testuser",
+         "gameId": "sudoku123"
+       }
+       ```
+
+7. **Monitor Logs and Metrics**
+   - **Kibana:** View aggregated logs from all services.
+   - **Prometheus & Grafana:** Monitor real-time metrics and set up alerts.
 
 ---
 
 ## Additional Features
 
 ### Distributed Caching with Consistent Hashing
-Implemented using Redis Cluster, consistent hashing ensures that cache data is evenly distributed across multiple Redis nodes. This approach minimizes cache misses and enhances performance by balancing the load.
+Implemented using **Redis Cluster**, consistent hashing ensures that cache data is evenly distributed across multiple Redis nodes. This approach minimizes cache misses and enhances performance by balancing the load. Redis Cluster automatically handles data partitioning and replication.
 
 ### Long-Running Saga Transactions
-Managed through a dedicated **Saga Coordinator Service**, which orchestrates distributed transactions across multiple microservices. This ensures data consistency and reliability without the complexity of traditional two-phase commits.
+Managed through a dedicated **Saga Coordinator Service**, which orchestrates distributed transactions across multiple microservices. This ensures data consistency and reliability without the complexity of traditional two-phase commits. The saga pattern breaks down transactions into smaller steps, each with compensating actions to handle failures gracefully.
 
 ### Database Replication and Failover
-PostgreSQL is configured with replication across three replicas using tools like **Patroni** or **PgBouncer** for connection pooling and failover management. This setup ensures high availability and data redundancy, automatically promoting replicas in case of primary database failure.
+**PostgreSQL** is configured with replication across three replicas using **Patroni** for leader election and failover management. This setup ensures high availability and data redundancy, automatically promoting replicas in case of primary database failure. **Redis Cluster** is also deployed with multiple nodes to ensure cache high availability.
 
 ### Data Warehouse
-A separate **Data Warehouse Service** uses Apache Airflow to schedule and manage ETL (Extract, Transform, Load) processes. Data from PostgreSQL and Redis is periodically extracted, transformed to meet analytical requirements, and loaded into a centralized data warehouse for comprehensive analytics and reporting.
+A separate **Data Warehouse Service** uses **Apache Airflow** to schedule and manage ETL (Extract, Transform, Load) processes. Data from PostgreSQL and Redis is periodically extracted, transformed to meet analytical requirements, and loaded into a centralized data warehouse (e.g., **Amazon Redshift** or **Google BigQuery**) for comprehensive analytics and reporting. This setup supports business intelligence and data-driven decision-making.
 
 ---
 
 ## Requirements Fulfillment
 
-1. **Trip Circuit Breaker**: Implemented within the API Gateway using Polly to handle retries and prevent cascading failures during multiple re-routes.
+1. **Trip Circuit Breaker if Multiple Re-Routes Happen**
+   - **Implemented:** Within the API Gateway using the **Polly** library to manage retry policies and prevent cascading failures during multiple re-routes.
 
-2. **Service High Availability**: Achieved through deploying multiple instances of each microservice and configuring PostgreSQL with replication and failover.
+2. **Service High Availability**
+   - **Implemented:** By deploying multiple instances of each microservice and configuring PostgreSQL and Redis with replication and failover mechanisms to ensure services remain available even during failures.
 
-3. **Implement ELK Stack or Prometheus + Grafana for Logging**: Utilized the ELK stack for centralized logging and Prometheus with Grafana for real-time monitoring and visualization of metrics across all services.
+3. **Implement ELK Stack or Prometheus + Grafana for Logging**
+   - **Implemented:** Utilized the **ELK stack** for centralized logging and **Prometheus** with **Grafana** for real-time monitoring and visualization of metrics across all services.
 
-4. **Implement Microservice-Based 2 Phase Commits**: Replaced with **Long-Running Saga Transactions** managed by a Saga Coordinator Service to handle distributed transactions across microservices.
+4. **Implement Microservice-Based 2 Phase Commits**
+   - **Implemented:** Added a new endpoint `/transactions/create_game_2pc` in the API Gateway to manage two-phase commits for transactions that create changes in more than one database, ensuring atomicity and consistency.
 
-5. **Consistent Hashing for Cache**: Implemented using Redis Cluster to distribute cache data evenly across multiple nodes, ensuring scalability and reliability.
+5. **Consistent Hashing for Cache**
+   - **Implemented:** Using **Redis Cluster** with consistent hashing to distribute cache data evenly across multiple nodes, ensuring scalability and reliability.
 
-6. **Implement Cache High Availability**: Achieved through Redis Cluster setup with multiple nodes and failover configurations to ensure cache availability even if some nodes fail.
+6. **Implement Cache High Availability**
+   - **Implemented:** Achieved through the Redis Cluster setup with multiple nodes and failover configurations to ensure cache availability even if some nodes fail.
 
-7. **Database Redundancy/Replication + Failover**: Configured PostgreSQL with replication across three replicas using Patroni, ensuring data redundancy and automatic failover in case of primary database failure.
+7. **Instead of 2 Phase Commits Implement Long-Running Saga Transactions with Coordinator**
+   - **Implemented:** Added a new endpoint `/transactions/create_game_saga` managed by the **Saga Coordinator Service**, handling long-running transactions across multiple microservices to ensure data consistency without traditional two-phase commits.
 
-8. **Create a Data Warehouse with ETL**: Established a Data Warehouse Service using Apache Airflow to periodically extract data from operational databases, transform it as needed, and load it into a centralized data warehouse for analytics.
+8. **Database Redundancy/Replication + Failover**
+   - **Implemented:** Configured **PostgreSQL** with replication across three replicas using **Patroni**, ensuring data redundancy and automatic failover in case of primary database failure.
+
+9. **Create a Data Warehouse that Will Be Periodically Updated with All Data from Your Databases**
+   - **Implemented:** Established a **Data Warehouse Service** using **Apache Airflow** to periodically extract data from operational databases, transform it as needed, and load it into a centralized data warehouse for comprehensive analytics and reporting.
 
 ---
 
 ## Conclusion
-
-The Online Sudoku Platform leverages a comprehensive microservices architecture enriched with advanced features to ensure scalability, high availability, resilience, and efficient data management. By implementing robust logging, monitoring, distributed caching, and data warehousing, the platform is well-equipped to handle high loads, provide real-time user experiences, and offer insightful analytics for continuous improvement.
-
-For further details or contributions, please refer to the repository or contact the project maintainers.
+The **Online Sudoku Platform** leverages a comprehensive microservices architecture enriched with advanced features to ensure scalability, high availability, resilience, and efficient data management. By implementing robust logging, monitoring, distributed caching, transaction management, database replication, and data warehousing, the platform is well-equipped to handle high loads, provide real-time user experiences, and offer insightful analytics for continuous improvement.
+---
