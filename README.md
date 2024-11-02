@@ -73,7 +73,7 @@ The **microservices architecture** is ideal for the Online Sudoku Platform due t
 ## System Architecture
 
 ### Architecture Diagram
-![Architecture Diagram](pad_architect.png)
+![Architecture Diagram](pad_architect_updated.png)
 
 *The updated architecture diagram includes new services and features such as the API Gateway with circuit breakers, ELK stack for logging, Prometheus & Grafana for monitoring, a Data Warehouse with ETL processes, database replication setups, and a Saga Coordinator for transaction management.*
 
