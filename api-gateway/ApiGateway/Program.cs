@@ -2,11 +2,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Yarp.ReverseProxy;
-using Polly;
-using Polly.Extensions.Http;
-using System;
-using System.Net;
-using System.Net.Http;
+using Microsoft.Extensions.Http;  // Add this using directive
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -22,22 +18,10 @@ builder.Services.AddCors(options =>
     });
 });
 
-// Configure the retry and circuit breaker policies
-var retryPolicy = HttpPolicyExtensions
-    .HandleTransientHttpError()
-    .OrResult(msg => msg.StatusCode == HttpStatusCode.InternalServerError)
-    .RetryAsync(3);
+// Register the Polly HttpMessageHandlerBuilderFilter
+builder.Services.AddSingleton<IHttpMessageHandlerBuilderFilter, PollyHttpMessageHandlerBuilderFilter>();
 
-var circuitBreakerPolicy = HttpPolicyExtensions
-    .HandleTransientHttpError()
-    .OrResult(msg => msg.StatusCode == HttpStatusCode.InternalServerError)
-    .CircuitBreakerAsync(1, TimeSpan.FromMinutes(1));
-
-// Register a named HttpClient for the cluster and apply the policies
-builder.Services.AddHttpClient("game_service_cluster")
-    .AddPolicyHandler(retryPolicy)
-    .AddPolicyHandler(circuitBreakerPolicy);
-
+// Configure the reverse proxy
 builder.Services.AddReverseProxy()
     .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
 
