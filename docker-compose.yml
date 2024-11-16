@@ -1,4 +1,4 @@
-version: '3.8'  # Убедитесь, что указана версия
+version: '3.8'
 
 services:
   api_gateway:
@@ -7,21 +7,38 @@ services:
     ports:
       - "5029:5029"
     depends_on:
-      - game_service
+      - game_service1
+      - game_service2
       - lobby_service
     environment:
-      - SERVICE1_URL=http://game_service:5001/
+      - SERVICE1_URL=http://game_service1:5001/
       - SERVICE2_URL=http://lobby_service:5002/
     networks:
       - app-network
 
-  game_service:
+  game_service1:
     build:
       context: ./game-service
     ports:
       - "5001:5001"
+    container_name: game_service1
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:admin@db_game_service:5432/pad_users
+      - INSTANCE_NAME=game_service1
+    depends_on:
+      - db_game_service
+    networks:
+      - app-network
+
+  game_service2:
+    build:
+      context: ./game-service
+    ports:
+      - "5003:5001"  # Map container's port 5001 to host's port 5003
+    container_name: game_service2
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:admin@db_game_service:5432/pad_users
+      - INSTANCE_NAME=game_service2
     depends_on:
       - db_game_service
     networks:

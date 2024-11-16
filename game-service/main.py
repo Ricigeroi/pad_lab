@@ -1,5 +1,6 @@
 # game_service.py
 import asyncio
+import os
 from datetime import datetime, timedelta
 from typing import AsyncGenerator, Dict, Optional
 from contextlib import asynccontextmanager
@@ -194,7 +195,8 @@ async def hello_game_service():
     """
     Returns a greeting message from game_service.
     """
-    return {"message": "Hello from game_service"}
+    instance_name = os.getenv("INSTANCE_NAME", "unknown")
+    return {"message": f"Hello from game_service instance {instance_name}"}
 
 @app.get("/game_service/combined", response_class=JSONResponse)
 async def get_combined_data():
