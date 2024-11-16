@@ -43,6 +43,11 @@ public class PollyHttpMessageHandlerBuilderFilter : IHttpMessageHandlerBuilderFi
                 });
     }
 
+    public Action<HttpMessageHandlerBuilder> Configure(Action<HttpMessageHandlerBuilder> next)
+    {
+        throw new NotImplementedException();
+    }
+
     public Action<HttpMessageHandlerBuilder> Create(Action<HttpMessageHandlerBuilder> next)
     {
         return builder =>
