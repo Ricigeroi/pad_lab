@@ -1,4 +1,4 @@
-# game_service.py
+# game_service/main.py
 import asyncio
 import os
 from datetime import datetime, timedelta
@@ -126,7 +126,7 @@ async def get_current_user(
     )
 
 # Registration Route
-@app.post("/game_service/register", response_model=User)
+@app.post("/register", response_model=User)
 async def register(user: UserRegister, db: AsyncSession = Depends(get_db)):
     existing_user = await get_user(db, user.username)
     if existing_user:
@@ -160,7 +160,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     return encoded_jwt
 
 # Login Route
-@app.post("/game_service/login", response_model=Token)
+@app.post("/login", response_model=Token)
 async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: AsyncSession = Depends(get_db)
@@ -180,7 +180,7 @@ async def login(
     return {"access_token": access_token, "token_type": "bearer"}
 
 # Protected Route Example
-@app.get("/game_service/users/me", response_model=User)
+@app.get("/users/me", response_model=User)
 async def read_users_me(
     current_user: User = Depends(get_current_user)
 ):
@@ -190,15 +190,23 @@ async def read_users_me(
 SERVICE2_URL = "http://localhost:5002/lobby_service/data"
 TIMEOUT = 10  # Set your desired timeout in seconds
 
-@app.get("/game_service/hello", response_class=JSONResponse)
+@app.get("/hello", response_class=JSONResponse)
 async def hello_game_service():
     """
     Returns a greeting message from game_service.
     """
+    flag = os.getenv("FLAG", "false")
+    if flag == "true":
+        raise HTTPException(status_code=503, detail="Flag is set to true")
+    
     instance_name = os.getenv("INSTANCE_NAME", "unknown")
     return {"message": f"Hello from game_service instance {instance_name}"}
 
-@app.get("/game_service/combined", response_class=JSONResponse)
+@app.get("/health")
+def health_check():
+    return {"status": "healthy"}
+
+@app.get("/combined", response_class=JSONResponse)
 async def get_combined_data():
     """
     Retrieves data from Service2 and returns a combined response.

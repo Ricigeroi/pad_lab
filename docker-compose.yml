@@ -9,10 +9,19 @@ services:
     depends_on:
       - game_service1
       - game_service2
-      - lobby_service
+      - game_service3
+      - lobby_service1
+      - lobby_service2
+      - lobby_service3
     environment:
-      - SERVICE1_URL=http://game_service1:5001/
-      - SERVICE2_URL=http://lobby_service:5002/
+      - GAME_SERVICE1_URL=http://game_service1:5001/
+      - GAME_SERVICE2_URL=http://game_service2:5001/
+      - GAME_SERVICE3_URL=http://game_service3:5001/
+      - LOBBY_SERVICE1_URL=http://lobby_service1:5002/
+      - LOBBY_SERVICE2_URL=http://lobby_service2:5002/
+      - LOBBY_SERVICE3_URL=http://lobby_service3:5002/
+
+
     networks:
       - app-network
 
@@ -25,6 +34,7 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:admin@db_game_service:5432/pad_users
       - INSTANCE_NAME=game_service1
+      - FLAG=true
     depends_on:
       - db_game_service
     networks:
@@ -43,12 +53,57 @@ services:
       - db_game_service
     networks:
       - app-network
+    
+  game_service3:
+    build:
+      context: ./game-service
+    ports:
+      - "5004:5001"  # Map container's port 5001 to host's port 5003
+    container_name: game_service3
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:admin@db_game_service:5432/pad_users
+      - INSTANCE_NAME=game_service3
+    depends_on:
+      - db_game_service
+    networks:
+      - app-network
 
-  lobby_service:
+  lobby_service1:
     build:
       context: ./lobby-service
     ports:
-      - "5002:5002"
+      - "5005:5002"
+    container_name: lobby_service1
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:admin@db_lobby_service:5432/pad_gameHistory
+      - REDIS_HOST=redis
+    depends_on:
+      - db_lobby_service
+      - redis
+    networks:
+      - app-network
+  
+  lobby_service2:
+    build:
+      context: ./lobby-service
+    ports:
+      - "5006:5002"
+    container_name: lobby_service2
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:admin@db_lobby_service:5432/pad_gameHistory
+      - REDIS_HOST=redis
+    depends_on:
+      - db_lobby_service
+      - redis
+    networks:
+      - app-network
+  
+  lobby_service3:
+    build:
+      context: ./lobby-service
+    ports:
+      - "5007:5002"
+    container_name: lobby_service3
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:admin@db_lobby_service:5432/pad_gameHistory
       - REDIS_HOST=redis
