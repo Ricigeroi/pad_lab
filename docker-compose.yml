@@ -16,9 +16,6 @@ services:
       - GAME_SERVICE2_URL=http://game_service2:5001/
       - GAME_SERVICE3_URL=http://game_service3:5001/
       - LOBBY_SERVICE_URL=http://lobby_service:5002/
-
-
-
     networks:
       - app-network
 
@@ -31,7 +28,7 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:admin@db_game_service:5432/pad_users
       - INSTANCE_NAME=game_service1
-      - FLAG=true
+      - FLAG=false
     depends_on:
       - db_game_service
     networks:
